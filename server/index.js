@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import ccxt from 'ccxt';
 import { RSI, SMA } from 'technicalindicators';
-import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -17,21 +16,21 @@ app.use(express.json());
 const PORT = process.env.PORT || 3001;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const rootDir = dirname(__dirname);
+const rootDir = path.resolve(__dirname, '..'); // ضمان الوصول للمجلد الرئيسي
 
 const EXCHANGE = new ccxt.kucoin();
 
+// State
 let activeSignals = [];
+let allTickers = {};
 let analyzedPairsCount = 0;
 let totalPairsCount = 0;
-let userEmail = '';
 let isScanning = false;
 
 const TIMEFRAME = '4h';
 const RSI_PERIOD = 14;
 const SMA_PERIOD = 9;
 const RSI_OVER_SOLD = 20;
-const MAX_PAIRS_TO_SCAN = 3000;
 
 async function fetchTopPairs() {
     try {
@@ -40,12 +39,13 @@ async function fetchTopPairs() {
             symbol.endsWith('/USDT') && markets[symbol].active
         );
         const tickers = await EXCHANGE.fetchTickers(usdtPairs);
-        const sorted = Object.values(tickers)
+        allTickers = tickers;
+        return Object.values(tickers)
             .sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0))
-            .slice(0, MAX_PAIRS_TO_SCAN)
+            .slice(0, 1000)
             .map(t => t.symbol);
-        return sorted;
     } catch (e) {
+        console.error("Error fetching markets:", e.message);
         return [];
     }
 }
@@ -58,14 +58,25 @@ async function analyzePair(symbol) {
         const rsiValues = RSI.calculate({ values: closes, period: RSI_PERIOD });
         const smaValues = SMA.calculate({ values: closes, period: SMA_PERIOD });
         if (rsiValues.length < 2 || smaValues.length < 1) return null;
+
         const currentRSI = rsiValues[rsiValues.length - 1];
         const prevRSI = rsiValues[rsiValues.length - 2];
         const currentSMA = smaValues[smaValues.length - 1];
         const currentPrice = closes[closes.length - 1];
+
         if (prevRSI < RSI_OVER_SOLD && currentRSI >= RSI_OVER_SOLD && currentPrice >= currentSMA) {
             return {
                 symbol, price: currentPrice, rsi: currentRSI, sma: currentSMA,
-                chartData: candles.map(c => ({ time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4] }))
+                volume: allTickers[symbol]?.quoteVolume || 0,
+                chartData: candles.map((c, i) => {
+                    const rsiIdx = i - (closes.length - rsiValues.length);
+                    const smaIdx = i - (closes.length - smaValues.length);
+                    return {
+                        time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4],
+                        rsi: rsiIdx >= 0 ? rsiValues[rsiIdx] : null,
+                        sma: smaIdx >= 0 ? smaValues[smaIdx] : null
+                    };
+                })
             };
         }
     } catch (e) {}
@@ -75,6 +86,7 @@ async function analyzePair(symbol) {
 async function runScan() {
     if (isScanning) return;
     isScanning = true;
+    console.log("Starting Scan...");
     try {
         const pairs = await fetchTopPairs();
         totalPairsCount = pairs.length;
@@ -87,28 +99,30 @@ async function runScan() {
             await new Promise(r => setTimeout(r, 100));
         }
         activeSignals = newSignals;
-    } catch (e) {} finally { isScanning = false; }
+        console.log("Scan Complete.");
+    } catch (e) {
+        console.error("Scan error:", e.message);
+    } finally { isScanning = false; }
 }
 
 runScan();
-setInterval(runScan, 60 * 1000);
+setInterval(runScan, 5 * 60 * 1000);
 
 app.get('/api/signals', (req, res) => {
     res.json({ signals: activeSignals, status: { scanning: isScanning, progress: analyzedPairsCount, total: totalPairsCount } });
 });
 
-app.post('/api/settings', (req, res) => {
-    if (req.body.email) userEmail = req.body.email;
-    res.json({ success: true, email: userEmail });
-});
-
 app.use(express.static(path.join(rootDir, 'dist')));
 
 app.get('*', (req, res) => {
-    if (req.path.startsWith('/api')) return res.status(404).json({ error: 'Not Found' });
-    res.sendFile(path.join(rootDir, 'dist', 'index.html'));
+    const indexPath = path.join(rootDir, 'dist', 'index.html');
+    res.sendFile(indexPath, (err) => {
+        if (err) {
+            res.status(500).send("Build internal folder 'dist' not found. Please wait for Render build to finish.");
+        }
+    });
 });
 
 app.listen(PORT, () => {
-    console.log(`Scanner Backend running on PORT ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
