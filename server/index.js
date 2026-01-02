@@ -20,7 +20,7 @@ const rootDir = path.resolve(__dirname, '..');
 
 const EXCHANGE = new ccxt.kucoin();
 
-// State
+// --- State (البيانات الحالية) ---
 let activeSignals = []; 
 let allTickers = {}; 
 let analyzedPairsCount = 0;
@@ -28,12 +28,14 @@ let totalPairsCount = 0;
 let userEmail = ''; 
 let isScanning = false;
 
+// --- الإعدادات ---
 const TIMEFRAME = '4h';
 const RSI_PERIOD = 14;
 const SMA_PERIOD = 9;
-const RSI_OVER_SOLD = 20;
+const RSI_OVER_SOLD = 20; // الاستراتيجية: تقاطع للأعلى من مستوى 20
 const MAX_PAIRS_TO_SCAN = 1000;
 
+// جلب أفضل العملات بناءً على حجم التداول
 async function fetchTopPairs() {
     try {
         const markets = await EXCHANGE.loadMarkets();
@@ -53,13 +55,18 @@ async function fetchTopPairs() {
     }
 }
 
+// تحليل العملة الواحدة
 async function analyzePair(symbol) {
     try {
         const candles = await EXCHANGE.fetchOHLCV(symbol, TIMEFRAME, undefined, 50);
         if (!candles || candles.length < 20) return null;
+        
         const closes = candles.map(c => c[4]);
+        
+        // حساب المؤشرات
         const rsiValues = RSI.calculate({ values: closes, period: RSI_PERIOD });
         const smaValues = SMA.calculate({ values: closes, period: SMA_PERIOD });
+        
         if (rsiValues.length < 2 || smaValues.length < 1) return null;
 
         const currentRSI = rsiValues[rsiValues.length - 1];
@@ -67,15 +74,23 @@ async function analyzePair(symbol) {
         const currentSMA = smaValues[smaValues.length - 1];
         const currentPrice = closes[closes.length - 1];
 
+        // منطق الاستراتيجية
         if (prevRSI < RSI_OVER_SOLD && currentRSI >= RSI_OVER_SOLD && currentPrice >= currentSMA) {
             return {
-                symbol, price: currentPrice, rsi: currentRSI, sma: currentSMA,
+                symbol, 
+                price: currentPrice, 
+                rsi: currentRSI, 
+                sma: currentSMA,
                 volume: allTickers[symbol]?.quoteVolume || 0,
                 chartData: candles.map((c, i) => {
                     const rsiIdx = i - (closes.length - rsiValues.length);
                     const smaIdx = i - (closes.length - smaValues.length);
                     return {
-                        time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4],
+                        time: c[0] / 1000, 
+                        open: c[1], 
+                        high: c[2], 
+                        low: c[3], 
+                        close: c[4],
                         rsi: rsiIdx >= 0 ? rsiValues[rsiIdx] : null,
                         sma: smaIdx >= 0 ? smaValues[smaIdx] : null
                     };
@@ -86,6 +101,7 @@ async function analyzePair(symbol) {
     return null;
 }
 
+// تشغيل الفحص
 async function runScan() {
     if (isScanning) return;
     isScanning = true;
@@ -99,20 +115,28 @@ async function runScan() {
             const signal = await analyzePair(symbol);
             if (signal) newSignals.push(signal);
             analyzedPairsCount++;
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise(r => setTimeout(r, 100)); // تأخير بسيط لتجنب الحظر
         }
         activeSignals = newSignals;
-        console.log("Scan Complete.");
+        console.log(`Scan Complete. Found ${activeSignals.length} signals.`);
     } catch (e) {
         console.error("Scan failed:", e.message);
     } finally { isScanning = false; }
 }
 
 runScan();
-setInterval(runScan, 60 * 1000);
+setInterval(runScan, 60 * 1000); // فحص كل دقيقة
 
+// --- روابط الـ API ---
 app.get('/api/signals', (req, res) => {
-    res.json({ signals: activeSignals, status: { scanning: isScanning, progress: analyzedPairsCount, total: totalPairsCount } });
+    res.json({ 
+        signals: activeSignals, 
+        status: { 
+            scanning: isScanning, 
+            progress: analyzedPairsCount, 
+            total: totalPairsCount 
+        } 
+    });
 });
 
 app.post('/api/settings', (req, res) => {
@@ -120,12 +144,13 @@ app.post('/api/settings', (req, res) => {
     res.json({ success: true, email: userEmail });
 });
 
+// خدمة ملفات الفرونت إند
 app.use(express.static(path.join(rootDir, 'dist')));
 
-// حل مشكلة Express 5: تم تغيير '*' إلى '(.*)'
-app.get('(.*)', (req, res) => {
+// --- حل مشكلة Express 5 النهائية ---
+app.get('/:path*', (req, res) => {
     if (req.path.startsWith('/api')) {
-        return res.status(404).json({ error: 'Not Found' });
+        return res.status(404).json({ error: 'Endpoint Not Found' });
     }
     const indexPath = path.join(rootDir, 'dist', 'index.html');
     res.sendFile(indexPath);
