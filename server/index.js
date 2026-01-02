@@ -16,21 +16,23 @@ app.use(express.json());
 const PORT = process.env.PORT || 3001;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const rootDir = path.resolve(__dirname, '..'); // ضمان الوصول للمجلد الرئيسي
+const rootDir = path.resolve(__dirname, '..');
 
 const EXCHANGE = new ccxt.kucoin();
 
 // State
-let activeSignals = [];
-let allTickers = {};
+let activeSignals = []; 
+let allTickers = {}; 
 let analyzedPairsCount = 0;
 let totalPairsCount = 0;
+let userEmail = ''; 
 let isScanning = false;
 
 const TIMEFRAME = '4h';
 const RSI_PERIOD = 14;
 const SMA_PERIOD = 9;
 const RSI_OVER_SOLD = 20;
+const MAX_PAIRS_TO_SCAN = 1000;
 
 async function fetchTopPairs() {
     try {
@@ -40,10 +42,11 @@ async function fetchTopPairs() {
         );
         const tickers = await EXCHANGE.fetchTickers(usdtPairs);
         allTickers = tickers;
-        return Object.values(tickers)
+        const sorted = Object.values(tickers)
             .sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0))
-            .slice(0, 1000)
+            .slice(0, MAX_PAIRS_TO_SCAN)
             .map(t => t.symbol);
+        return sorted;
     } catch (e) {
         console.error("Error fetching markets:", e.message);
         return [];
@@ -101,28 +104,33 @@ async function runScan() {
         activeSignals = newSignals;
         console.log("Scan Complete.");
     } catch (e) {
-        console.error("Scan error:", e.message);
+        console.error("Scan failed:", e.message);
     } finally { isScanning = false; }
 }
 
 runScan();
-setInterval(runScan, 5 * 60 * 1000);
+setInterval(runScan, 60 * 1000);
 
 app.get('/api/signals', (req, res) => {
     res.json({ signals: activeSignals, status: { scanning: isScanning, progress: analyzedPairsCount, total: totalPairsCount } });
 });
 
+app.post('/api/settings', (req, res) => {
+    if (req.body.email) userEmail = req.body.email;
+    res.json({ success: true, email: userEmail });
+});
+
 app.use(express.static(path.join(rootDir, 'dist')));
 
-app.get('*', (req, res) => {
+// حل مشكلة Express 5: تم تغيير '*' إلى '(.*)'
+app.get('(.*)', (req, res) => {
+    if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: 'Not Found' });
+    }
     const indexPath = path.join(rootDir, 'dist', 'index.html');
-    res.sendFile(indexPath, (err) => {
-        if (err) {
-            res.status(500).send("Build internal folder 'dist' not found. Please wait for Render build to finish.");
-        }
-    });
+    res.sendFile(indexPath);
 });
 
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`Scanner Backend running on PORT ${PORT}`);
 });
