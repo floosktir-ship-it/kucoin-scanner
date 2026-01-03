@@ -7,7 +7,7 @@ interface Signal { symbol: string; price: number; rsi: number; volume: number; c
 
 function App() {
   const [signals, setSignals] = useState<Signal[]>([]);
-  const [status, setStatus] = useState<any>({ scanning: false, progress: 0, total: 0 });
+  const [status, setStatus] = useState({ scanning: false, progress: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState(() => localStorage.getItem('ks_email') || '');
   const [timeframe, setTimeframe] = useState(() => localStorage.getItem('ks_tf') || '4h');
@@ -28,9 +28,11 @@ function App() {
   const fetchSignals = async () => {
     try {
       const res = await axios.get('/api/signals');
-      setSignals(res.data.signals);
-      setStatus(res.data.status);
-    } catch (e) {} finally { setLoading(false); }
+      if (res.data) {
+          setSignals(res.data.signals || []);
+          setStatus(res.data.status || { scanning: false, progress: 0, total: 0 });
+      }
+    } catch (e) { console.error("Fetch Error"); } finally { setLoading(false); }
   };
 
   useEffect(() => {
@@ -47,25 +49,28 @@ function App() {
       <header className="header">
         <div className="title-area">
           <h1>🎯 KuCoin Sniper <span className="pro-badge">PRO</span></h1>
-          <p className="scan-status">{status.scanning ? `Scanning: ${status.progress} / ${status.total}` : 'Idle'}</p>
+          <p className="scan-status">{status.scanning ? `Scanning Market: ${status.progress} / ${status.total}` : 'Search Ready 🟢'}</p>
         </div>
         
         <div className="pro-panel">
           <div className="panel-row">
             <div className="input-box"><label>Timeframe</label>
               <select value={timeframe} onChange={e => setTimeframe(e.target.value)}>
-                <option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1d</option>
+                <option value="15m">15m</option><option value="30m">30m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1d</option>
               </select>
             </div>
-            <div className="input-box"><label>RSI Cross Above</label>
+            <div className="input-box"><label>RSI Breakout</label>
               <input type="number" value={rsiLevel} onChange={e => setRsiLevel(Number(e.target.value))} />
+            </div>
+            <div className="input-box"><label>RSI Period</label>
+              <input type="number" value={rsiPeriod} onChange={e => setRsiPeriod(Number(e.target.value))} />
             </div>
           </div>
           <div className="panel-row">
             <div className="input-box wide"><label>Email Alerts</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" />
             </div>
-            <div className="input-box"><label>Min Volume: ${formatVol(minVolume)}</label>
+            <div className="input-box"><label>Min Vol: ${formatVol(minVolume)}</label>
               <input type="range" min="0" max="1000000" step="10000" value={minVolume} onChange={e => setMinVolume(Number(e.target.value))} />
             </div>
           </div>
@@ -73,9 +78,9 @@ function App() {
       </header>
 
       {loading ? (
-        <div className="loading-container"><div className="spinner"></div><p>Performing High Speed Market Analysis...</p></div>
+        <div className="loading-container"><div className="spinner"></div><p>Synchronizing with KuCoin Liquidity...</p></div>
       ) : filtered.length === 0 ? (
-        <div className="empty-state"><h2>No Signals</h2><p>Wait for candle close or try 15m timeframe.</p></div>
+        <div className="empty-state"><h2>No Signals Found</h2><p>Scanning top 1000 coins for RSI {rsiLevel} breakout.</p></div>
       ) : (
         <div className="grid">
           {filtered.map(sig => (
@@ -99,7 +104,7 @@ function App() {
         <div className="modal-overlay" onClick={() => setSelected(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <button className="close" onClick={() => setSelected(null)}>&times;</button>
-            <div className="modal-head">
+            <div className="modal-header">
                <h2>{selectedSignal.symbol} Detail</h2>
                <div className="modal-stats">
                   <div>Price: <span>${selectedSignal.price}</span></div>
