@@ -58,7 +58,12 @@ async function analyzePair(symbol) {
                 signalIdx: candles.length - 2,
                 chartData: candles.map((c, i) => {
                     const rIdx = i - (closes.length - rsiValues.length);
-                    return { time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4], rsi: rIdx >= 0 ? rsiValues[rIdx] : null };
+                    return { 
+                        time: c[0] / 1000, 
+                        open: c[1], high: c[2], low: c[3], close: c[4], 
+                        volume: c[5], // الفوليوم
+                        rsi: rIdx >= 0 ? rsiValues[rIdx] : null 
+                    };
                 })
             };
         }
