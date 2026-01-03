@@ -20,7 +20,7 @@ const rootDir = dirname(__dirname);
 const EXCHANGE = new ccxt.kucoin();
 
 // State
-let activeSignals = new Map(); // حفظ الإشارات باستخدام Map لضمان بقائها
+let activeSignals = new Map();
 let allTickers = {};
 let analyzedPairsCount = 0;
 let totalPairsCount = 0;
@@ -36,15 +36,25 @@ const SIGNAL_EXPIRY_MS = 2 * 60 * 60 * 1000; // بقاء التنبيه لمدة
 
 async function fetchTopPairs() {
     try {
+        console.log("--- جاري جلب بيانات السوق من KuCoin ---");
         const markets = await EXCHANGE.loadMarkets();
-        const usdtPairs = Object.keys(markets).filter(s => s.endsWith('/USDT') && markets[s].active);
-        const tickers = await EXCHANGE.fetchTickers(usdtPairs);
+        
+        // جلب جميع الأزواج بطلقة واحدة لضمان السرعة (Fetch all tickers)
+        const tickers = await EXCHANGE.fetchTickers(); 
         allTickers = tickers;
-        return Object.values(tickers)
+        
+        const sorted = Object.values(tickers)
+            .filter(t => t.symbol && t.symbol.endsWith('/USDT') && markets[t.symbol]?.active)
             .sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0))
             .slice(0, MAX_PAIRS_TO_SCAN)
             .map(t => t.symbol);
-    } catch (e) { return []; }
+
+        console.log(`>>> تم تحميل ${sorted.length} عملة بنجاح.`);
+        return sorted;
+    } catch (e) { 
+        console.error("!!! خطأ في جلب البيانات:", e.message);
+        return []; 
+    }
 }
 
 async function analyzePair(symbol) {
@@ -59,7 +69,7 @@ async function analyzePair(symbol) {
         const prevConfirmedRSI = rsiValues[rsiValues.length - 3];
         const confirmedPrice = closes[closes.length - 2];
 
-        // الاستراتيجية: اختراق RSI لمستوى 20 صعوداً عند الإغلاق
+        // استراتيجية الاختراق المؤكد
         if (prevConfirmedRSI < RSI_OVER_SOLD && confirmedRSI >= RSI_OVER_SOLD) {
             return {
                 symbol, price: confirmedPrice, rsi: confirmedRSI,
@@ -82,31 +92,47 @@ async function analyzePair(symbol) {
 async function runScan() {
     if (isScanning) return;
     isScanning = true;
+    console.log("--- بدء عملية الفحص الآن ---");
     try {
         const pairs = await fetchTopPairs();
         totalPairsCount = pairs.length;
         analyzedPairsCount = 0;
         
+        if (totalPairsCount === 0) {
+            console.log("جاري انتظار البيانات من المنصة... (0/0)");
+            return;
+        }
+
+        // فحص متوازي لضمان السرعة المطلقة
         for (let i = 0; i < pairs.length; i += 10) {
             const chunk = pairs.slice(i, i + 10);
             const batchResults = await Promise.all(chunk.map(s => analyzePair(s)));
             
             batchResults.forEach(sig => {
-                if (sig) activeSignals.set(sig.symbol, sig);
+                if (sig) {
+                    activeSignals.set(sig.symbol, sig);
+                    console.log(`[إشارة جديدة] ${sig.symbol}`);
+                }
             });
             
             analyzedPairsCount += chunk.length;
+            if (analyzedPairsCount % 100 === 0 || analyzedPairsCount === totalPairsCount) {
+                console.log(`التقدم: ${analyzedPairsCount} / ${totalPairsCount}`);
+            }
             await new Promise(r => setTimeout(r, 100)); 
         }
 
-        // تنظيف الإشارات القديمة التي مر عليها أكثر من ساعتين
+        // تنظيف العملات القديمة التي تجاوزت ساعتين
         const now = Date.now();
         for (const [symbol, sig] of activeSignals.entries()) {
             if (now - sig.timestamp > SIGNAL_EXPIRY_MS) {
                 activeSignals.delete(symbol);
             }
         }
+        console.log(`--- تم الانتهاء من الفحص (يوجد حالياً ${activeSignals.size} إشارة) ---`);
         
+    } catch (e) {
+        console.error("!!! خطأ أثناء الفحص:", e.message);
     } finally { isScanning = false; }
 }
 
@@ -130,9 +156,15 @@ app.post('/api/settings', (req, res) => {
 });
 
 app.use(express.static(path.join(rootDir, 'dist')));
-app.get('/:path*', (req, res) => {
+
+// حل مشكلة المسار النهائي للتطبيق
+app.get('*', (req, res) => {
     if (req.path.startsWith('/api')) return res.status(404).end();
     res.sendFile(path.join(rootDir, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Backend Stable on ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`********************************************`);
+    console.log(`*  الخادم يعمل بنجاح على المنفذ ${PORT}           *`);
+    console.log(`********************************************`);
+});
