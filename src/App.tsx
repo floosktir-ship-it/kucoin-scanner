@@ -1,15 +1,11 @@
+```
 import { useEffect, useState, useMemo } from 'react'
 import './App.css'
 import axios from 'axios';
 import { SignalChart } from './components/SignalChart';
 
 interface Signal {
-  symbol: string;
-  price: number;
-  rsi: number;
-  sma: number;
-  volume: number;
-  chartData: any[];
+  symbol: string; price: number; rsi: number; volume: number; chartData: any[];
 }
 
 function App() {
@@ -47,9 +43,9 @@ function App() {
     return signals.filter(sig => sig.volume >= minVolume);
   }, [signals, minVolume]);
 
-  const formatVolume = (vol: number) => {
-    if (vol >= 1000000) return `${(vol / 1000000).toFixed(2)}M`;
-    if (vol >= 1000) return `${(vol / 1000).toFixed(1)}K`;
+  const formatVol = (vol: number) => {
+    if (vol >= 1000000) return `${ (vol / 1000000).toFixed(2) } M`;
+    if (vol >= 1000) return `${ (vol / 1000).toFixed(1) } K`;
     return vol.toFixed(0);
   };
 
@@ -59,7 +55,7 @@ function App() {
         <h1>🎯 KuCoin Sniper</h1>
         <div className="controls-wrapper">
           <div className="status-pills">
-            <div className={`pill ${status.scanning ? 'active' : ''}`}>
+            <div className={`pill ${ status.scanning ? 'active' : '' } `}>
               {status.scanning ? 'Scanning...' : 'Idle'}
             </div>
             <div className="pill">
@@ -68,7 +64,7 @@ function App() {
           </div>
 
           <div className="filter-group">
-            <label>Min Vol: ${formatVolume(minVolume)}</label>
+            <label>Min Vol: ${formatVol(minVolume)}</label>
             <input
               type="range"
               min="0"
@@ -110,7 +106,7 @@ function App() {
                 <div className="badges">
                   <span className="badge price-val">${sig.price}</span>
                   <span className="badge rsi-val">RSI: {sig.rsi.toFixed(2)}</span>
-                  <span className="badge vol-val">Vol: {formatVolume(sig.volume)}</span>
+                  <span className="badge vol-val">Vol: {formatVol(sig.volume)}</span>
                 </div>
               </div>
               <div className="chart-container-wrapper">
@@ -141,7 +137,7 @@ function App() {
                 </div>
                 <div>
                   <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>24h Volume</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>${formatVolume(selectedSignal.volume)}</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>${formatVol(selectedSignal.volume)}</div>
                 </div>
               </div>
             </div>
@@ -152,7 +148,7 @@ function App() {
               />
             </div>
             <div style={{ marginTop: '2rem', color: 'var(--text-secondary)' }}>
-              <p>Strategy: RSI(14) Cross Above 20 + Price &gt; SMA(9). Timeframe: 4H.</p>
+              <p style={{marginTop:'1.5rem', color:'#888'}}>Strategy: RSI(14) Cross Above 20. Timeframe: 4H.</p>
             </div>
           </div>
         </div>
