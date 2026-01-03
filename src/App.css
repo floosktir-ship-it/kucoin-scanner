@@ -5,6 +5,7 @@
   --glass-border: rgba(255, 255, 255, 0.1);
   --text-primary: #f0f2f5;
   --text-secondary: #a0aec0;
+  --warning: #ff9800;
 }
 
 body {
@@ -14,12 +15,12 @@ body {
   font-family: 'Inter', sans-serif;
   min-height: 100vh;
   display: flex;
-  justify-content: center; /* توسيط أفقي */
+  justify-content: center; /* توسيط الموقع */
 }
 
 .container {
   width: 100%;
-  max-width: 1400px; /* العرض الأقصى للكمبيوتر */
+  max-width: 1400px;
   margin: 0 auto;
   padding: 1.5rem;
   box-sizing: border-box;
@@ -29,7 +30,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap; /* للسماح بالعناصر بالنزول في الجوال */
+  flex-wrap: wrap;
   gap: 1.5rem;
   margin-bottom: 2rem;
   border-bottom: 1px solid var(--glass-border);
@@ -45,45 +46,71 @@ body {
   justify-content: flex-end;
 }
 
+.email-input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: 8px 0 0 8px;
+}
+
+.join-btn {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0 8px 8px 0;
+  cursor: pointer;
+  font-weight: 600;
+}
+
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 2rem;
   width: 100%;
 }
 
 .card {
   background: var(--card-bg);
-  border-radius: 18px;
+  border-radius: 20px;
   border: 1px solid var(--glass-border);
-  padding: 1rem;
-  height: 450px; /* طول ثابت لمنع التداخل */
+  padding: 1.2rem;
+  height: 480px; /* منع التداخل */
   display: flex;
   flex-direction: column;
   backdrop-filter: blur(10px);
+  cursor: pointer;
 }
 
-.chart-container-wrapper {
-  flex: 1;
-  margin-top: 0.5rem;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #000;
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
 }
 
-/* تنسيقات الجوال */
+.modal-content {
+  background: var(--bg-dark);
+  width: 90%;
+  max-width: 1100px;
+  height: 85vh;
+  padding: 2rem;
+  border-radius: 24px;
+  border: 1px solid var(--glass-border);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
 @media (max-width: 768px) {
-  .header { justify-content: center; text-align: center; }
-  .controls-wrapper { justify-content: center; width: 100%; }
+  .header { flex-direction: column; }
   .grid { grid-template-columns: 1fr; }
-  .card { height: 400px; }
+  .controls-wrapper { justify-content: center; }
 }
 
-/* Spinner and Loaders */
-.loading-container { display: flex; justify-content: center; align-items: center; height: 60vh; }
 .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-left-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* Badge Colors */
-.badge.rsi-val { background: rgba(255, 152, 0, 0.15); color: #ff9800; }
-.badge.price-val { background: rgba(33, 150, 243, 0.15); color: #2196f3; }
