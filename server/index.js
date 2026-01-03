@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import ccxt from 'ccxt';
 import { RSI } from 'technicalindicators';
-import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -23,13 +22,7 @@ let activeSignals = [];
 let allTickers = {}; 
 let analyzedPairsCount = 0;
 let totalPairsCount = 0;
-let userEmail = '';
 let isScanning = false;
-
-const TIMEFRAME = '4h';
-const RSI_PERIOD = 14;
-const RSI_OVER_SOLD = 20;
-const MAX_PAIRS_TO_SCAN = 1000;
 
 async function fetchTopPairs() {
     try {
@@ -39,24 +32,24 @@ async function fetchTopPairs() {
         allTickers = tickers;
         return Object.values(tickers)
             .sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0))
-            .slice(0, MAX_PAIRS_TO_SCAN)
+            .slice(0, 1000)
             .map(t => t.symbol);
     } catch (e) { return []; }
 }
 
 async function analyzePair(symbol) {
     try {
-        const candles = await EXCHANGE.fetchOHLCV(symbol, TIMEFRAME, undefined, 50);
+        const candles = await EXCHANGE.fetchOHLCV(symbol, '4h', undefined, 50);
         if (!candles || candles.length < 20) return null;
         const closes = candles.map(c => c[4]);
-        const rsiValues = RSI.calculate({ values: closes, period: RSI_PERIOD });
+        const rsiValues = RSI.calculate({ values: closes, period: 14 });
         if (rsiValues.length < 2) return null;
 
         const currentRSI = rsiValues[rsiValues.length - 1];
         const prevRSI = rsiValues[rsiValues.length - 2];
         const currentPrice = closes[closes.length - 1];
 
-        if (prevRSI < RSI_OVER_SOLD && currentRSI >= RSI_OVER_SOLD) {
+        if (prevRSI < 20 && currentRSI >= 20) {
             return {
                 symbol, price: currentPrice, rsi: currentRSI,
                 volume: allTickers[symbol]?.quoteVolume || 0,
@@ -96,12 +89,6 @@ setInterval(runScan, 60 * 1000);
 
 app.get('/api/signals', (req, res) => {
     res.json({ signals: activeSignals, status: { scanning: isScanning, progress: analyzedPairsCount, total: totalPairsCount } });
-});
-
-app.post('/api/settings', (req, res) => {
-    const { email } = req.body;
-    if (email) userEmail = email;
-    res.json({ success: true });
 });
 
 app.use(express.static(path.join(rootDir, 'dist')));
