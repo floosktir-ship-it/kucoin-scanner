@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import ccxt from 'ccxt';
 import { RSI } from 'technicalindicators';
+import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -18,57 +19,63 @@ const __dirname = dirname(__filename);
 const rootDir = dirname(__dirname);
 
 const EXCHANGE = new ccxt.kucoin();
+
+// State & Config
 let activeSignals = []; 
 let allTickers = {}; 
-let analyzedPairsCount = 0;
-let totalPairsCount = 0;
 let isScanning = false;
-let userEmail = '';
-let currentTimeframe = '4h'; 
+let status = { progress: 0, total: 0 };
 
-async function fetchTopPairs() {
-    try {
-        const markets = await EXCHANGE.loadMarkets();
-        const usdtPairs = Object.keys(markets).filter(s => s.endsWith('/USDT') && markets[s].active);
-        const tickers = await EXCHANGE.fetchTickers(usdtPairs);
-        allTickers = tickers;
-        return Object.values(tickers)
-            .sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0))
-            .slice(0, 1000)
-            .map(t => t.symbol);
-    } catch (e) { return []; }
+// إعدادات افتراضية قابلة للتعديل من الواجهة
+let settings = {
+    email: '',
+    timeframe: '4h',
+    rsiLevel: 20,
+    rsiPeriod: 14,
+    senderEmail: process.env.SENDER_EMAIL || '', // إيميلك الذي سيرسل
+    senderPass: process.env.SENDER_PASS || ''    // كلمة مرور التطبيقات
+};
+
+// إعداد نظام الإرسال
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: settings.senderEmail, pass: settings.senderPass }
+});
+
+async function sendEmailAlert(signal) {
+    if (!settings.email || !settings.senderEmail) return;
+    const mailOptions = {
+        from: settings.senderEmail,
+        to: settings.email,
+        subject: `🎯 KuCoin Signal: ${signal.symbol}`,
+        text: `New Buy Signal found for ${signal.symbol} at price $${signal.price}. RSI(${settings.rsiPeriod}) just crossed above ${settings.rsiLevel} on ${settings.timeframe} timeframe.`
+    };
+    try { await transporter.sendMail(mailOptions); console.log("Email Sent!"); } catch (e) { console.error("Email Fail:", e.message); }
 }
 
 async function analyzePair(symbol) {
     try {
-        const candles = await EXCHANGE.fetchOHLCV(symbol, currentTimeframe, undefined, 50);
-        if (!candles || candles.length < 25) return null;
-        
+        const candles = await EXCHANGE.fetchOHLCV(symbol, settings.timeframe, undefined, settings.rsiPeriod + 10);
+        if (!candles || candles.length < settings.rsiPeriod + 2) return null;
         const closes = candles.map(c => c[4]);
-        const rsiValues = RSI.calculate({ values: closes, period: 14 });
-        
+        const rsiValues = RSI.calculate({ values: closes, period: settings.rsiPeriod });
         if (rsiValues.length < 3) return null;
 
-        // منطق الإغلاق: فحص الشمعة التي أغلقت لتوها (len-2) والشمعة التي سبقتها (len-3)
-        const lastClosedRSI = rsiValues[rsiValues.length - 2];
-        const prevClosedRSI = rsiValues[rsiValues.length - 3];
-        const currentPrice = closes[closes.length - 1];
+        const lastRSI = rsiValues[rsiValues.length - 2];
+        const prevRSI = rsiValues[rsiValues.length - 3];
 
-        // تقاطع الـ 20 صعوداً بعد إغلاق الشمعة
-        if (prevClosedRSI < 20 && lastClosedRSI >= 20) {
-            return {
-                symbol, price: currentPrice, rsi: lastClosedRSI,
+        if (prevRSI < settings.rsiLevel && lastRSI >= settings.rsiLevel) {
+            const signal = {
+                symbol, price: closes[closes.length - 1], rsi: lastRSI,
                 volume: allTickers[symbol]?.quoteVolume || 0,
-                // نرسل الـ Index الخاص بالشمعة التي حدث فيها التقاطع للرسم
-                signalIdx: candles.length - 2, 
+                signalIdx: candles.length - 2,
                 chartData: candles.map((c, i) => {
                     const rIdx = i - (closes.length - rsiValues.length);
-                    return {
-                        time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4],
-                        rsi: rIdx >= 0 ? rsiValues[rIdx] : null
-                    };
+                    return { time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4], rsi: rIdx >= 0 ? rsiValues[rIdx] : null };
                 })
             };
+            sendEmailAlert(signal); // إرسال تنبيه فور الاكتشاف
+            return signal;
         }
     } catch (e) {}
     return null;
@@ -78,44 +85,47 @@ async function runScan() {
     if (isScanning) return;
     isScanning = true;
     try {
-        const pairs = await fetchTopPairs();
-        totalPairsCount = pairs.length;
-        analyzedPairsCount = 0;
+        const markets = await EXCHANGE.loadMarkets();
+        const usdtPairs = Object.keys(markets).filter(s => s.endsWith('/USDT') && markets[s].active);
+        const tickers = await EXCHANGE.fetchTickers(usdtPairs);
+        allTickers = tickers;
+        const pairs = Object.values(tickers).sort((a,b) => b.quoteVolume - a.quoteVolume).slice(0,1000).map(t => t.symbol);
+        
+        status.total = pairs.length;
+        status.progress = 0;
         const newSignals = [];
-        for (const s of pairs) {
-            const sig = await analyzePair(s);
-            if (sig) newSignals.push(sig);
-            analyzedPairsCount++;
-            await new Promise(r => setTimeout(r, 100));
+
+        // تسريع الفحص: فحص مجموعات (10 عملات في وقت واحد)
+        const chunkSize = 10;
+        for (let i = 0; i < pairs.length; i += chunkSize) {
+            const chunk = pairs.slice(i, i + chunkSize);
+            const results = await Promise.all(chunk.map(symbol => analyzePair(symbol)));
+            results.forEach(res => { if(res) newSignals.push(res); });
+            status.progress += chunk.length;
+            await new Promise(r => setTimeout(r, 200)); 
         }
         activeSignals = newSignals;
-    } catch (e) {} finally { isScanning = false; }
+    } catch (e) { console.error("Scan Error:", e); } finally { isScanning = false; }
 }
 
 runScan();
 setInterval(runScan, 60 * 1000);
 
-app.get('/api/signals', (req, res) => {
-    res.json({ signals: activeSignals, status: { scanning: isScanning, progress: analyzedPairsCount, total: totalPairsCount } });
-});
+app.get('/api/signals', (req, res) => res.json({ signals: activeSignals, status: { ...status, scanning: isScanning } }));
 
 app.post('/api/settings', (req, res) => {
-    const { email, timeframe } = req.body;
-    let changed = false;
-    if (email) userEmail = email;
-    if (timeframe && timeframe !== currentTimeframe) {
-        currentTimeframe = timeframe;
-        activeSignals = []; 
-        changed = true;
-    }
-    res.json({ success: true, email: userEmail, timeframe: currentTimeframe });
-    if (changed && !isScanning) runScan();
+    const { email, timeframe, rsiLevel, rsiPeriod } = req.body;
+    let needsRescan = false;
+    if (email !== undefined) settings.email = email;
+    if (timeframe && timeframe !== settings.timeframe) { settings.timeframe = timeframe; needsRescan = true; }
+    if (rsiLevel !== undefined) { settings.rsiLevel = Number(rsiLevel); needsRescan = true; }
+    if (rsiPeriod !== undefined) { settings.rsiPeriod = Number(rsiPeriod); needsRescan = true; }
+    
+    res.json({ success: true, settings });
+    if (needsRescan && !isScanning) { activeSignals = []; runScan(); }
 });
 
 app.use(express.static(path.join(rootDir, 'dist')));
-app.get('/:path*', (req, res) => {
-    if (req.path.startsWith('/api')) return res.status(404).json({ error: 'Not Found' });
-    res.sendFile(path.join(rootDir, 'dist', 'index.html'));
-});
+app.get('/:path*', (req, res) => res.sendFile(path.join(rootDir, 'dist', 'index.html')));
 
-app.listen(PORT, () => console.log(`Backend running on ${PORT}`));
+app.listen(PORT, () => console.log(`Pro Scanner Running on ${PORT}`));
