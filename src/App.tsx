@@ -4,7 +4,7 @@ import axios from 'axios';
 import { SignalChart } from './components/SignalChart';
 
 interface Signal {
-  symbol: string; price: number; rsi: number; volume: number; chartData: any[];
+  symbol: string; price: number; rsi: number; volume: number; chartData: any[]; signalIdx: number;
 }
 
 function App() {
@@ -12,18 +12,22 @@ function App() {
   const [status, setStatus] = useState<any>({});
   const [loading, setLoading] = useState(true);
   
-  // استعادة الإعدادات المحفوظة
-  const [minVolume, setMinVolume] = useState(() => {
-    const saved = localStorage.getItem('ks_minVol');
-    return saved !== null ? Number(saved) : 10000;
-  });
+  const [email, setEmail] = useState(() => localStorage.getItem('ks_email') || '');
   const [timeframe, setTimeframe] = useState(() => localStorage.getItem('ks_tf') || '4h');
-  const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null);
+  const [minVolume, setMinVolume] = useState(() => {
+    const v = localStorage.getItem('ks_minVol');
+    return v !== null ? Number(v) : 10000;
+  });
+  
+  const [selected, setSelected] = useState<Signal | null>(null);
 
-  // حفظ الإعدادات تلقائياً عند تغييرها
   useEffect(() => {
     localStorage.setItem('ks_minVol', minVolume.toString());
   }, [minVolume]);
+
+  useEffect(() => {
+    localStorage.setItem('ks_email', email);
+  }, [email]);
 
   useEffect(() => {
     localStorage.setItem('ks_tf', timeframe);
@@ -35,11 +39,12 @@ function App() {
       const res = await axios.get('/api/signals');
       setSignals(res.data.signals);
       setStatus(res.data.status);
-    } catch (error) {
-      console.error("Failed to fetch signals", error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
+  };
+
+  const saveEmail = async () => {
+    await axios.post('/api/settings', { email });
+    alert('Email Saved!');
   };
 
   useEffect(() => {
@@ -48,14 +53,14 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const filteredSignals = useMemo(() => {
-    return signals.filter(sig => sig.volume >= minVolume);
+  const filtered = useMemo(() => {
+    return signals.filter(s => s.volume >= minVolume);
   }, [signals, minVolume]);
 
-  const formatVol = (vol: number) => {
-    if (vol >= 1000000) return `${(vol / 1000000).toFixed(2)} M`;
-    if (vol >= 1000) return `${(vol / 1000).toFixed(1)} K`;
-    return vol.toFixed(0);
+  const formatVol = (v: number) => {
+    if (v >= 1000000) return `${(v / 1000000).toFixed(2)}M`;
+    if (v >= 1000) return `${(v / 1000).toFixed(1)}K`;
+    return v.toFixed(0);
   };
 
   return (
@@ -64,14 +69,12 @@ function App() {
         <h1>🎯 KuCoin Sniper</h1>
         <div className="controls-wrapper">
           <div className="status-pills">
-            <div className={`pill ${status.scanning ? 'active' : ''} `}>
-              {status.scanning ? 'Scanning...' : 'Idle'}
-            </div>
+            <div className={`pill ${status.scanning ? 'active' : ''}`}>{status.scanning ? 'Scanning...' : 'Idle'}</div>
             <div className="pill">{status.progress} / {status.total}</div>
           </div>
-
+          
           <div className="filter-group">
-            <label>Timeframe:</label>
+            <label>TF:</label>
             <select value={timeframe} onChange={(e) => setTimeframe(e.target.value)} className="tf-select">
               <option value="15m">15m</option>
               <option value="30m">30m</option>
@@ -82,65 +85,55 @@ function App() {
           </div>
 
           <div className="filter-group">
-            <label>Min Vol: ${formatVol(minVolume)}</label>
-            <input type="range" min="0" max="1000000" step="5000" value={minVolume} onChange={(e) => setMinVolume(parseInt(e.target.value))} />
+            <label>Vol: ${formatVol(minVolume)}</label>
+            <input type="range" min="0" max="1000000" step="5000" value={minVolume} onChange={(e) => setMinVolume(Number(e.target.value))} />
+          </div>
+
+          <div className="filter-group">
+            <input type="email" placeholder="Email Alerts" value={email} onChange={(e) => setEmail(e.target.value)} className="email-input" />
+            <button className="save-btn" onClick={saveEmail}>Save</button>
           </div>
         </div>
       </header>
 
       {loading ? (
-        <div className="loading-container">
-          <div className="spinner"></div>
-          <p>Analyzing Markets...</p>
-        </div>
-      ) : filteredSignals.length === 0 ? (
-        <div className="empty-state">
-          <h2>No Signals Found 📉</h2>
-          <p>Try switching to 15m or lowering Vol.</p>
-        </div>
+        <div className="loading-container"><div className="spinner"></div><p>Searching for confirmed breakouts...</p></div>
+      ) : filtered.length === 0 ? (
+        <div className="empty-state"><h2>No Signals 📉</h2><p>Wait for candle close or try 15m.</p></div>
       ) : (
         <div className="grid">
-          {filteredSignals.map((sig) => (
-            <div key={sig.symbol} className="card" onClick={() => setSelectedSignal(sig)}>
+          {filtered.map((sig) => (
+            <div key={sig.symbol} className="card" onClick={() => setSelected(sig)}>
               <div className="card-header">
                 <div className="symbol-name">{sig.symbol.split('/')[0]}</div>
                 <div className="badges">
                   <span className="badge price-val">${sig.price}</span>
                   <span className="badge rsi-val">RSI: {sig.rsi.toFixed(2)}</span>
-                  <span className="badge vol-val">Vol: {formatVol(sig.volume)}</span>
+                  <span className="badge vol-val">V: {formatVol(sig.volume)}</span>
                 </div>
               </div>
               <div className="chart-container-wrapper">
-                <SignalChart data={sig.chartData} colors={{ backgroundColor: '#000', textColor: '#d1d4dc' }} />
+                <SignalChart data={sig.chartData} signalIdx={sig.signalIdx} colors={{ backgroundColor: '#000' }} />
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {selectedSignal && (
-        <div className="modal-overlay" onClick={() => setSelectedSignal(null)}>
+      {selected && (
+        <div className="modal-overlay" onClick={() => setSelected(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn" onClick={() => setSelectedSignal(null)}>&times;</button>
+            <button className="close-btn" onClick={() => setSelected(null)}>&times;</button>
             <div className="modal-header">
-              <h2 style={{ fontSize: '2rem', margin: '0 0 1rem 0' }}>{selectedSignal.symbol} Detail</h2>
-              <div style={{ display: 'flex', gap: '2rem', marginBottom: '2rem' }}>
-                <div>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Price</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>${selectedSignal.price}</div>
-                </div>
-                <div>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>RSI (14)</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--warning)' }}>{selectedSignal.rsi.toFixed(2)}</div>
-                </div>
-                <div>
-                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>24h Vol</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>${formatVol(selectedSignal.volume)}</div>
-                </div>
+              <h2>{selected.symbol} Details</h2>
+              <div className="modal-stats" style={{display:'flex', gap:'2rem', margin:'1rem 0'}}>
+                <div><label>Price</label><div style={{fontSize:'1.5rem', fontWeight:700}}>${selected.price}</div></div>
+                <div><label>RSI (Closed)</label><div style={{fontSize:'1.5rem', fontWeight:700, color:'orange'}}>{selected.rsi.toFixed(2)}</div></div>
+                <div><label>TF</label><div style={{fontSize:'1.5rem', fontWeight:700, color:'cyan'}}>{timeframe}</div></div>
               </div>
             </div>
-            <div style={{ height: '500px', background: '#000', borderRadius: '16px', overflow: 'hidden' }}>
-              <SignalChart data={selectedSignal.chartData} colors={{ backgroundColor: '#000', textColor: '#d1d4dc' }} />
+            <div style={{ height: '450px', background: '#000', borderRadius: '16px', overflow: 'hidden' }}>
+              <SignalChart data={selected.chartData} signalIdx={selected.signalIdx} colors={{ backgroundColor: '#000' }} />
             </div>
           </div>
         </div>
