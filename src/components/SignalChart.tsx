@@ -21,78 +21,32 @@ export const SignalChart = ({ data, signalIdx, rsiLevel = 20, colors }: SignalCh
             },
             width: chartRef.current.clientWidth, 
             height: 450, 
-            grid: { 
-                vertLines: { visible: false }, 
-                horzLines: { color: 'rgba(42, 46, 57, 0.2)' } 
-            },
-            timeScale: { borderColor: 'rgba(197, 203, 206, 0.4)', timeVisible: true },
+            grid: { vertLines: { visible: false }, horzLines: { color: 'rgba(42, 46, 57, 0.2)' } },
         });
 
-        // 🟢 1. شمعات السعر (فوق)
-        const candlestickSeries = chart.addCandlestickSeries({ 
-            upColor: '#26a69a', downColor: '#ef5350',
-            priceScaleId: 'right' 
-        });
-        chart.priceScale('right').applyOptions({
-            scaleMargins: { top: 0.05, bottom: 0.4 }, 
-        });
-        candlestickSeries.setData(data);
+        const candles = chart.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', priceScaleId: 'right' });
+        chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.4 } });
+        candles.setData(data);
 
-        // 🔵 2. أعمدة الفوليوم (وسط)
-        const volumeSeries = chart.addHistogramSeries({
-            color: '#26a69a',
-            priceFormat: { type: 'volume' },
-            priceScaleId: 'volume',
-        });
-        chart.priceScale('volume').applyOptions({
-            scaleMargins: { top: 0.7, bottom: 0.31 }, 
-        });
-        volumeSeries.setData(data.map(d => ({
-            time: d.time,
-            value: d.volume || 0,
-            color: (d.close >= d.open) ? 'rgba(38, 166, 154, 0.3)' : 'rgba(239, 83, 80, 0.3)'
-        })));
+        const volume = chart.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
+        chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.7, bottom: 0.31 } });
+        volume.setData(data.map(d => ({ time: d.time, value: d.volume || 0, color: d.close >= d.open ? 'rgba(38,166,154,0.3)' : 'rgba(239,83,80,0.3)' })));
 
-        // 🟠 3. مؤشر الـ RSI (تحت في منطقة منفصلة)
-        const rsiSeries = chart.addLineSeries({ 
-            color: '#FF9800', 
-            lineWidth: 2, 
-            priceScaleId: 'rsi', 
-            title: `RSI` 
-        });
-        chart.priceScale('rsi').applyOptions({ 
-            autoScale: false, 
-            scaleMargins: { top: 0.75, bottom: 0.05 },
-        });
-        rsiSeries.setData(data.map(d => ({ time: d.time, value: d.rsi })));
+        const rsi = chart.addLineSeries({ color: '#FF9800', lineWidth: 2, priceScaleId: 'rsi', title: `RSI` });
+        chart.priceScale('rsi').applyOptions({ autoScale: false, scaleMargins: { top: 0.75, bottom: 0.05 } });
+        rsi.setData(data.map(d => ({ time: d.time, value: d.rsi })));
 
-        // سهم الشراء
         if (signalIdx !== undefined && data[signalIdx]) {
-            candlestickSeries.setMarkers([{ 
-                time: data[signalIdx].time, 
-                position: 'belowBar', 
-                color: '#26a69a', 
-                shape: 'arrowUp', 
-                text: 'BUY',
-                size: 2
-            }]);
+            candles.setMarkers([{ time: data[signalIdx].time, position: 'belowBar', color: '#26a69a', shape: 'arrowUp', text: 'BUY', size: 2 }]);
         }
 
-        // خطوط المستويات
-        rsiSeries.createPriceLine({ 
-            price: rsiLevel, 
-            color: '#ef5350', 
-            lineWidth: 2, 
-            axisLabelVisible: true, 
-            title: `BUY ZONE` 
-        });
-        rsiSeries.createPriceLine({ price: 70, color: 'rgba(38, 166, 154, 0.5)', lineWidth: 1, axisLabelVisible: true });
+        rsi.createPriceLine({ price: rsiLevel, color: '#ef5350', lineWidth: 2, axisLabelVisible: true, title: `BUY` });
+        rsi.createPriceLine({ price: 70, color: 'rgba(38, 166, 154, 0.5)', lineWidth: 1, axisLabelVisible: true });
 
         chart.timeScale().fitContent();
-        
-        const handleResize = () => { if(chartRef.current) chart.applyOptions({ width: chartRef.current.clientWidth }); };
-        window.addEventListener('resize', handleResize);
-        return () => { window.removeEventListener('resize', handleResize); chart.remove(); };
+        const resizer = () => { if(chartRef.current) chart.applyOptions({ width: chartRef.current.clientWidth }); };
+        window.addEventListener('resize', resizer);
+        return () => { window.removeEventListener('resize', resizer); chart.remove(); };
     }, [data, signalIdx, rsiLevel, colors]);
 
     return <div ref={chartRef} style={{ width: '100%', height: '100%' }} />;
