@@ -18,6 +18,7 @@ export const SignalChart = ({ data, signalIdx, rsiLevel = 20, colors }: SignalCh
         const candles = chart.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350' });
         candles.setData(data);
 
+        // إضافة سهم الشراء على الشمعة الصحيحة
         if (signalIdx !== undefined && data[signalIdx]) {
             candles.setMarkers([{ time: data[signalIdx].time, position: 'belowBar', color: '#26a69a', shape: 'arrowUp', text: 'BUY' }]);
         }
@@ -26,6 +27,7 @@ export const SignalChart = ({ data, signalIdx, rsiLevel = 20, colors }: SignalCh
         chart.priceScale('rsi').applyOptions({ autoScale: false, scaleMargins: { top: 0.75, bottom: 0.05 } });
         rsiSeries.setData(data.map(d => ({ time: d.time, value: d.rsi })));
 
+        // خطوط المستويات الأفقية
         rsiSeries.createPriceLine({ price: rsiLevel, color: '#ef5350', lineWidth: 2, axisLabelVisible: true, title: `L:${rsiLevel}` });
         rsiSeries.createPriceLine({ price: 70, color: 'rgba(38, 166, 154, 0.5)', lineWidth: 1, axisLabelVisible: true, title: '70' });
 
