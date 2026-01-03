@@ -23,7 +23,7 @@ const EXCHANGE = new ccxt.kucoin();
 let activeSignals = []; 
 let allTickers = {}; 
 let isScanning = false;
-let subscribers = new Set(); 
+let subscribersList = new Set(); 
 let scanStatus = { progress: 0, total: 0, scanning: false };
 
 let settings = {
@@ -40,22 +40,22 @@ const transporter = nodemailer.createTransport({
 });
 
 async function sendEmailAlert(signal) {
-    const emails = Array.from(subscribers);
+    const emails = Array.from(subscribersList);
     if (emails.length === 0 || !settings.senderEmail || !settings.senderPass) return;
     const mailOptions = {
         from: `"KuCoin Sniper Pro" <${settings.senderEmail}>`,
         to: settings.senderEmail,
         bcc: emails.join(','),
         subject: `🎯 Buy Signal: ${signal.symbol}`,
-        text: `Entry for ${signal.symbol} at $${signal.price}. RSI: ${signal.rsi.toFixed(2)}.`
+        text: `New entry for ${signal.symbol} at $${signal.price}. RSI: ${signal.rsi.toFixed(2)}.`
     };
-    try { await transporter.sendMail(mailOptions); } catch (e) {}
+    try { await transporter.sendMail(mailOptions); } catch (e) { console.error("Email Fail"); }
 }
 
 async function analyzePair(symbol) {
     try {
         const candles = await EXCHANGE.fetchOHLCV(symbol, settings.timeframe, undefined, 50);
-        if (!candles || candles.length < 25) return null;
+        if (!candles || candles.length < 30) return null;
         const closes = candles.map(c => c[4]);
         const rsiValues = RSI.calculate({ values: closes, period: settings.rsiPeriod });
         if (rsiValues.length < 3) return null;
@@ -63,7 +63,7 @@ async function analyzePair(symbol) {
         const prevRSI = rsiValues[rsiValues.length - 3];
 
         if (prevRSI < settings.rsiLevel && lastRSI >= settings.rsiLevel) {
-            const sig = {
+            return {
                 symbol, price: closes[closes.length - 1], rsi: lastRSI,
                 volume: allTickers[symbol]?.quoteVolume || 0,
                 signalIdx: candles.length - 2,
@@ -72,8 +72,6 @@ async function analyzePair(symbol) {
                     return { time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5], rsi: rIdx >= 0 ? rsiValues[rIdx] : null };
                 })
             };
-            sendEmailAlert(sig);
-            return sig;
         }
     } catch (e) {}
     return null;
@@ -93,24 +91,31 @@ async function runScan() {
         for (let i = 0; i < pairs.length; i += 10) {
             const chunk = pairs.slice(i, i + 10);
             const results = await Promise.all(chunk.map(s => analyzePair(s)));
-            results.forEach(res => { if(res) newSignals.push(res); });
+            results.forEach(res => { if(res) { newSignals.push(res); sendEmailAlert(res); } });
             scanStatus.progress += chunk.length;
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise(r => setTimeout(r, 150)); 
         }
         activeSignals = newSignals;
-    } catch (e) {} finally { isScanning = false; scanStatus.scanning = false; }
+    } catch (e) { console.error("Scan Error"); } finally { isScanning = false; scanStatus.scanning = false; }
 }
 
 runScan();
 setInterval(runScan, 60 * 1000);
 
-app.get('/api/signals', (req, res) => res.json({ signals: activeSignals, status: scanStatus }));
+app.get('/api/signals', (req, res) => {
+    res.json({ signals: activeSignals || [], status: scanStatus });
+});
+
 app.post('/api/settings', (req, res) => {
     const { email, timeframe, rsiLevel } = req.body;
-    if (email) subscribers.add(email);
-    if (timeframe && timeframe !== settings.timeframe) { settings.timeframe = timeframe; activeSignals = []; runScan(); }
+    if (email) subscribersList.add(email);
+    if (timeframe && timeframe !== settings.timeframe) {
+        settings.timeframe = timeframe;
+        activeSignals = [];
+        if(!isScanning) runScan();
+    }
     if (rsiLevel !== undefined) settings.rsiLevel = Number(rsiLevel);
-    res.json({ success: true, subscribers: subscribers.size });
+    res.json({ success: true });
 });
 
 app.use(express.static(path.join(rootDir, 'dist')));
@@ -118,4 +123,5 @@ app.get('*', (req, res) => {
     if (req.path.startsWith('/api')) return res.status(404).end();
     res.sendFile(path.join(rootDir, 'dist', 'index.html'));
 });
-app.listen(PORT, () => console.log(`Server on ${PORT}`));
+
+app.listen(PORT, () => console.log(`Backend Stable on ${PORT}`));
