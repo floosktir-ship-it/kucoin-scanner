@@ -10,24 +10,18 @@ interface Signal {
 function App() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [status, setStatus] = useState<any>({});
-  const [email, setEmail] = useState(() => localStorage.getItem('ks_email') || '');
   const [loading, setLoading] = useState(true);
   
-  // المنطق الجديد: يبدأ بـ 10 آلاف فقط ويحفظ أي تغيير تقوم به
   const [minVolume, setMinVolume] = useState(() => {
     const saved = localStorage.getItem('ks_minVol');
     return saved !== null ? Number(saved) : 10000; 
   });
   
-  const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null);
+  const [selected, setSelected] = useState<Signal | null>(null);
 
   useEffect(() => {
     localStorage.setItem('ks_minVol', minVolume.toString());
   }, [minVolume]);
-
-  useEffect(() => {
-    localStorage.setItem('ks_email', email);
-  }, [email]);
 
   const fetchSignals = async () => {
     try {
@@ -43,7 +37,7 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const filteredSignals = useMemo(() => {
+  const filtered = useMemo(() => {
     return signals.filter(sig => sig.volume >= minVolume);
   }, [signals, minVolume]);
 
@@ -70,13 +64,13 @@ function App() {
       </header>
 
       {loading ? (
-        <div className="loading-container"><div className="spinner"></div><p>Scanning Markets...</p></div>
-      ) : filteredSignals.length === 0 ? (
+        <div className="loading-container"><div className="spinner"></div><p>Scanning markets...</p></div>
+      ) : filtered.length === 0 ? (
         <div className="empty-state"><h2>No Signals Found 📉</h2><p>Try lowering the Volume Filter.</p></div>
       ) : (
         <div className="grid">
-          {filteredSignals.map((sig) => (
-            <div key={sig.symbol} className="card" onClick={() => setSelectedSignal(sig)}>
+          {filtered.map((sig) => (
+            <div key={sig.symbol} className="card" onClick={() => setSelected(sig)}>
               <div className="card-header">
                 <div className="symbol-name">{sig.symbol.split('/')[0]}</div>
                 <div className="badges">
@@ -93,20 +87,20 @@ function App() {
         </div>
       )}
 
-      {selectedSignal && (
-        <div className="modal-overlay" onClick={() => setSelectedSignal(null)}>
+      {selected && (
+        <div className="modal-overlay" onClick={() => setSelected(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn" onClick={() => setSelectedSignal(null)}>&times;</button>
+            <button className="close-btn" onClick={() => setSelected(null)}>&times;</button>
             <div className="modal-header">
-              <h2>{selectedSignal.symbol} Detail</h2>
+              <h2>{selected.symbol} Detail</h2>
               <div className="modal-stats" style={{display:'flex', gap:'2rem', margin:'1rem 0'}}>
-                <div><label>Price</label><div style={{fontSize:'1.5rem', fontWeight:700}}>${selectedSignal.price}</div></div>
-                <div><label>RSI</label><div style={{fontSize:'1.5rem', fontWeight:700, color:'orange'}}>{selectedSignal.rsi.toFixed(2)}</div></div>
-                <div><label>Volume</label><div style={{fontSize:'1.5rem', fontWeight:700}}>${formatVol(selectedSignal.volume)}</div></div>
+                <div><label>Price</label><div style={{fontSize:'1.5rem', fontWeight:700}}>${selected.price}</div></div>
+                <div><label>RSI</label><div style={{fontSize:'1.5rem', fontWeight:700, color:'orange'}}>{selected.rsi.toFixed(2)}</div></div>
+                <div><label>Volume</label><div style={{fontSize:'1.5rem', fontWeight:700}}>${formatVol(selected.volume)}</div></div>
               </div>
             </div>
             <div style={{ height: '450px', background: '#000', borderRadius: '16px', overflow: 'hidden' }}>
-              <SignalChart data={selectedSignal.chartData} colors={{ backgroundColor: '#000', textColor: '#d1d4dc' }} />
+              <SignalChart data={selected.chartData} colors={{ backgroundColor: '#000', textColor: '#d1d4dc' }} />
             </div>
           </div>
         </div>
