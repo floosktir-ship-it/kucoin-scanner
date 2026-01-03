@@ -23,7 +23,7 @@ const EXCHANGE = new ccxt.kucoin();
 let activeSignals = []; 
 let allTickers = {}; 
 let isScanning = false;
-let scanStatus = { progress: 0, total: 0, scanning: false };
+let scanProgress = { progress: 0, total: 0, scanning: false };
 
 let settings = {
     email: '',
@@ -39,17 +39,6 @@ const transporter = nodemailer.createTransport({
     auth: { user: settings.senderEmail, pass: settings.senderPass }
 });
 
-async function sendEmailAlert(signal) {
-    if (!settings.email || !settings.senderEmail || !settings.senderPass) return;
-    const mailOptions = {
-        from: settings.senderEmail,
-        to: settings.email,
-        subject: `🎯 KuCoin Signal: ${signal.symbol}`,
-        text: `New Buy Signal found for ${signal.symbol} at $${signal.price}. RSI crossed above ${settings.rsiLevel}.`
-    };
-    try { await transporter.sendMail(mailOptions); } catch (e) { console.error("Mail Error"); }
-}
-
 async function analyzePair(symbol) {
     try {
         const candles = await EXCHANGE.fetchOHLCV(symbol, settings.timeframe, undefined, settings.rsiPeriod + 10);
@@ -63,7 +52,7 @@ async function analyzePair(symbol) {
         const prevRSI = rsiValues[rsiValues.length - 3];
 
         if (prevRSI < settings.rsiLevel && lastRSI >= settings.rsiLevel) {
-            const signal = {
+            return {
                 symbol, price: closes[closes.length - 1], rsi: lastRSI,
                 volume: allTickers[symbol]?.quoteVolume || 0,
                 signalIdx: candles.length - 2,
@@ -72,8 +61,6 @@ async function analyzePair(symbol) {
                     return { time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4], rsi: rIdx >= 0 ? rsiValues[rIdx] : null };
                 })
             };
-            sendEmailAlert(signal);
-            return signal;
         }
     } catch (e) {}
     return null;
@@ -82,15 +69,17 @@ async function analyzePair(symbol) {
 async function runScan() {
     if (isScanning) return;
     isScanning = true;
-    scanStatus.scanning = true;
+    scanProgress.scanning = true;
     try {
         const tickers = await EXCHANGE.fetchTickers();
-        const usdtPairs = Object.keys(tickers).filter(s => s.endsWith('/USDT'));
-        allTickers = tickers;
-        const pairs = usdtPairs.sort((a,b) => (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0)).slice(0, 1000);
+        const pairs = Object.keys(tickers)
+            .filter(s => s.endsWith('/USDT'))
+            .sort((a,b) => (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0))
+            .slice(0, 1000);
         
-        scanStatus.total = pairs.length;
-        scanStatus.progress = 0;
+        allTickers = tickers;
+        scanProgress.total = pairs.length;
+        scanProgress.progress = 0;
         const newSignals = [];
 
         const chunkSize = 10;
@@ -98,17 +87,17 @@ async function runScan() {
             const chunk = pairs.slice(i, i + chunkSize);
             const results = await Promise.all(chunk.map(s => analyzePair(s)));
             results.forEach(res => { if(res) newSignals.push(res); });
-            scanStatus.progress += chunk.length;
-            await new Promise(r => setTimeout(r, 100));
+            scanProgress.progress += chunk.length;
+            await new Promise(r => setTimeout(r, 150)); 
         }
         activeSignals = newSignals;
-    } catch (e) { console.error("Scan Error"); } finally { isScanning = false; scanStatus.scanning = false; }
+    } catch (e) { console.error("Scan Error"); } finally { isScanning = false; scanProgress.scanning = false; }
 }
 
 runScan();
 setInterval(runScan, 60 * 1000);
 
-app.get('/api/signals', (req, res) => res.json({ signals: activeSignals, status: scanStatus }));
+app.get('/api/signals', (req, res) => res.json({ signals: activeSignals, status: scanProgress }));
 
 app.post('/api/settings', (req, res) => {
     const { email, timeframe, rsiLevel, rsiPeriod } = req.body;
@@ -122,9 +111,9 @@ app.post('/api/settings', (req, res) => {
 });
 
 app.use(express.static(path.join(rootDir, 'dist')));
-app.get('/:path*', (req, res) => {
-    if (req.path.startsWith('/api')) return res.status(404).json({error:'Not Found'});
+app.get('*', (req, res) => {
+    if (req.path.startsWith('/api')) return res.status(404).json({error:'API Not Found'});
     res.sendFile(path.join(rootDir, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Backend Active on ${PORT}`));
+app.listen(PORT, () => console.log(`Backend Running on ${PORT}`));
