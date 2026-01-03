@@ -10,87 +10,76 @@
 }
 
 body {
-  margin: 0;
-  background-color: var(--bg-dark);
-  color: var(--text-primary);
-  font-family: 'Inter', sans-serif;
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
+  margin: 0; background-color: var(--bg-dark); color: var(--text-primary);
+  font-family: 'Inter', sans-serif; min-height: 100vh;
+  display: flex; justify-content: center;
 }
 
-.container {
-  width: 100%;
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 2rem;
-}
+.container { width: 100%; max-width: 1500px; margin: 0 auto; padding: 2rem; }
 
 .header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 3rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--glass-border);
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--glass-border);
 }
 
 .header h1 {
-  font-size: 2.5rem;
-  font-weight: 800;
+  font-size: 2rem; margin: 0; font-weight: 800;
   background: linear-gradient(135deg, #fff 0%, #a5a5a5 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  margin: 0;
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 
 .controls-wrapper {
-  display: flex;
-  gap: 1.5rem;
-  align-items: center;
-  background: var(--card-bg);
-  padding: 1rem 1.5rem;
-  border-radius: 16px;
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--glass-border);
+  display: flex; gap: 0.8rem; align-items: center;
+  background: var(--card-bg); padding: 0.8rem 1.2rem; border-radius: 12px; border: 1px solid var(--glass-border);
 }
 
-.status-pills { display: flex; gap: 1rem; }
-.pill { padding: 0.5rem 1rem; border-radius: 100px; background: rgba(255, 255, 255, 0.05); font-size: 0.85rem; border: 1px solid var(--glass-border); }
+.pill { padding: 0.3rem 0.6rem; border-radius: 6px; background: rgba(255, 255, 255, 0.05); font-size: 0.75rem; border: 1px solid var(--glass-border); }
 .pill.active { color: var(--success); }
 
-.filter-group { display: flex; align-items: center; gap: 1rem; padding: 0 1rem; border-left: 1px solid var(--glass-border); }
-.tf-select { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border); color: #fff; padding: 0.5rem; border-radius: 8px; cursor: pointer; outline: none; }
-.tf-select option { background: var(--bg-dark); color: #fff; }
+.filter-group { display: flex; align-items: center; gap: 0.6rem; padding-left: 0.8rem; border-left: 1px solid var(--glass-border); }
+.filter-group label { font-size: 0.8rem; color: var(--text-secondary); }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(450px, 1fr)); gap: 2rem; }
-.card { background: var(--card-bg); border-radius: 20px; border: 1px solid var(--glass-border); padding: 1.5rem; cursor: pointer; }
-.symbol-name { font-size: 1.6rem; font-weight: 700; }
-.badges { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end; }
-.badge { padding: 0.25rem 0.75rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600; }
-.badge.rsi-val { background: rgba(255, 152, 0, 0.15); color: var(--warning); }
-.badge.price-val { background: rgba(33, 150, 243, 0.15); color: var(--primary); }
+.tf-select, .email-input {
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border);
+  color: #fff; padding: 0.4rem; border-radius: 6px; outline: none; font-size: 0.8rem;
+}
 
-.chart-container-wrapper { height: 350px; margin-top: 1rem; border-radius: 12px; overflow: hidden; background: #000; }
+.email-input { width: 140px; }
+
+.save-btn {
+  background: var(--primary); color: white; border: none; padding: 0.4rem 0.8rem;
+  border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.8rem;
+}
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 1.5rem; }
+.card { background: var(--card-bg); border-radius: 16px; border: 1px solid var(--glass-border); padding: 1.2rem; cursor: pointer; }
+.symbol-name { font-size: 1.3rem; font-weight: 700; }
+.badges { display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-end; }
+.badge { padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
+.badge.rsi-val { background: rgba(255,152,0,0.15); color: var(--warning); }
+.badge.price-val { background: rgba(33,150,243,0.15); color: var(--primary); }
+
+.chart-container-wrapper { height: 280px; margin-top: 1rem; border-radius: 10px; overflow: hidden; background: #000; }
 
 .modal-overlay {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(12px);
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.9); backdrop-filter: blur(8px);
   display: flex; justify-content: center; align-items: center; z-index: 1000;
 }
 
 .modal-content {
-  background: var(--bg-dark); width: 95%; max-width: 1200px; max-height: 95vh; border-radius: 24px; border: 1px solid var(--glass-border);
-  padding: 3rem; position: relative; overflow-y: auto;
+  background: var(--bg-dark); width: 90%; max-width: 900px; max-height: 90vh;
+  border-radius: 20px; border: 1px solid var(--glass-border); padding: 2.5rem; position: relative;
 }
 
-.close-btn { position: absolute; top: 1.5rem; right: 1.5rem; background: none; border: none; color: #fff; font-size: 2.5rem; cursor: pointer; }
+.close-btn { position: absolute; top: 1rem; right: 1.5rem; background: none; border: none; color: #fff; font-size: 2.5rem; cursor: pointer; }
 
 @media (max-width: 768px) {
-  .header { flex-direction: column; gap: 1.5rem; text-align: center; }
-  .controls-wrapper { flex-direction: column; width: 100%; gap: 1.5rem; }
-  .grid { grid-template-columns: 1fr; }
+  .header { flex-direction: column; gap: 1rem; text-align: center; }
+  .controls-wrapper { flex-direction: column; width: 100%; }
+  .filter-group { border: none; padding: 0; width: 100%; justify-content: space-between; }
 }
 
-.loading-container { text-align: center; padding-top: 10vh; }
-.spinner { width: 50px; height: 50px; border: 5px solid rgba(255, 255, 255, 0.1); border-left-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto; }
+.loading-container { text-align: center; padding-top: 15vh; }
+.spinner { width: 40px; height: 40px; border: 4px solid #222; border-top-color: var(--primary); border-radius: 50%; animation: spin 1s infinite linear; margin: 0 auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
