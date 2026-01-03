@@ -23,8 +23,8 @@ const EXCHANGE = new ccxt.kucoin();
 let activeSignals = []; 
 let allTickers = {}; 
 let isScanning = false;
-let scanStatusArr = { progress: 0, total: 0, scanning: false };
 let subscribers = new Set(); 
+let scanStatus = { progress: 0, total: 0, scanning: false };
 
 let settings = {
     timeframe: '4h',
@@ -47,15 +47,15 @@ async function sendEmailAlert(signal) {
         to: settings.senderEmail,
         bcc: emails.join(','),
         subject: `🎯 Buy Signal: ${signal.symbol}`,
-        text: `New entry for ${signal.symbol} at $${signal.price}. RSI: ${signal.rsi.toFixed(2)}.`
+        text: `Entry for ${signal.symbol} at $${signal.price}. RSI: ${signal.rsi.toFixed(2)}.`
     };
-    try { await transporter.sendMail(mailOptions); } catch (e) { console.error("Email Error"); }
+    try { await transporter.sendMail(mailOptions); } catch (e) {}
 }
 
 async function analyzePair(symbol) {
     try {
-        const candles = await EXCHANGE.fetchOHLCV(symbol, settings.timeframe, undefined, settings.rsiPeriod + 10);
-        if (!candles || candles.length < settings.rsiPeriod + 5) return null;
+        const candles = await EXCHANGE.fetchOHLCV(symbol, settings.timeframe, undefined, 50);
+        if (!candles || candles.length < 25) return null;
         const closes = candles.map(c => c[4]);
         const rsiValues = RSI.calculate({ values: closes, period: settings.rsiPeriod });
         if (rsiValues.length < 3) return null;
@@ -82,39 +82,35 @@ async function analyzePair(symbol) {
 async function runScan() {
     if (isScanning) return;
     isScanning = true;
-    scanStatusArr.scanning = true;
+    scanStatus.scanning = true;
     try {
         const tickers = await EXCHANGE.fetchTickers();
         const pairs = Object.keys(tickers).filter(s => s.endsWith('/USDT')).sort((a,b) => (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0)).slice(0, 1000);
         allTickers = tickers;
-        scanStatusArr.total = pairs.length;
-        scanStatusArr.progress = 0;
+        scanStatus.total = pairs.length;
+        scanStatus.progress = 0;
         const newSignals = [];
-        const chunkSize = 10;
-        for (let i = 0; i < pairs.length; i += chunkSize) {
-            const chunk = pairs.slice(i, i + chunkSize);
+        for (let i = 0; i < pairs.length; i += 10) {
+            const chunk = pairs.slice(i, i + 10);
             const results = await Promise.all(chunk.map(s => analyzePair(s)));
             results.forEach(res => { if(res) newSignals.push(res); });
-            scanStatusArr.progress += chunk.length;
-            await new Promise(r => setTimeout(r, 150)); 
+            scanStatus.progress += chunk.length;
+            await new Promise(r => setTimeout(r, 100));
         }
         activeSignals = newSignals;
-    } catch (e) {} finally { isScanning = false; scanStatusArr.scanning = false; }
+    } catch (e) {} finally { isScanning = false; scanStatus.scanning = false; }
 }
 
 runScan();
 setInterval(runScan, 60 * 1000);
 
-app.get('/api/signals', (req, res) => res.json({ signals: activeSignals, status: scanStatusArr }));
+app.get('/api/signals', (req, res) => res.json({ signals: activeSignals, status: scanStatus }));
 app.post('/api/settings', (req, res) => {
-    const { email, timeframe, rsiLevel, rsiPeriod } = req.body;
-    let needsRescan = false;
+    const { email, timeframe, rsiLevel } = req.body;
     if (email) subscribers.add(email);
-    if (timeframe && timeframe !== settings.timeframe) { settings.timeframe = timeframe; needsRescan = true; }
-    if (rsiLevel !== undefined) { settings.rsiLevel = Number(rsiLevel); needsRescan = true; }
-    if (rsiPeriod !== undefined) { settings.rsiPeriod = Number(rsiPeriod); needsRescan = true; }
-    res.json({ success: true });
-    if (needsRescan && !isScanning) { activeSignals = []; runScan(); }
+    if (timeframe && timeframe !== settings.timeframe) { settings.timeframe = timeframe; activeSignals = []; runScan(); }
+    if (rsiLevel !== undefined) settings.rsiLevel = Number(rsiLevel);
+    res.json({ success: true, subscribers: subscribers.size });
 });
 
 app.use(express.static(path.join(rootDir, 'dist')));
@@ -122,5 +118,4 @@ app.get('*', (req, res) => {
     if (req.path.startsWith('/api')) return res.status(404).end();
     res.sendFile(path.join(rootDir, 'dist', 'index.html'));
 });
-
-app.listen(PORT, () => console.log(`Stable Server running on ${PORT}`));
+app.listen(PORT, () => console.log(`Server on ${PORT}`));
