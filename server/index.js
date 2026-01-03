@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import ccxt from 'ccxt';
 import { RSI } from 'technicalindicators';
-import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -59,6 +58,7 @@ async function analyzePair(symbol) {
         const prevConfirmedRSI = rsiValues[rsiValues.length - 3];
         const confirmedPrice = closes[closes.length - 2];
 
+        // تنبيه الاختراق القوي: السابقة تحت 20 والمغلقة فوق 20
         if (prevConfirmedRSI < RSI_OVER_SOLD && confirmedRSI >= RSI_OVER_SOLD) {
             return {
                 symbol, price: confirmedPrice, rsi: confirmedRSI,
@@ -68,7 +68,7 @@ async function analyzePair(symbol) {
                     const rIdx = i - (closes.length - rsiValues.length);
                     return {
                         time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4],
-                        volume: c[5], rsi: rIdx >= 0 ? rsiValues[rIdx] : null
+                        rsi: rIdx >= 0 ? rsiValues[rIdx] : null
                     };
                 })
             };
@@ -85,11 +85,14 @@ async function runScan() {
         totalPairsCount = pairs.length;
         analyzedPairsCount = 0;
         const newSignals = [];
-        for (const symbol of pairs) {
-            const sig = await analyzePair(symbol);
-            if (sig) newSignals.push(sig);
-            analyzedPairsCount++;
-            await new Promise(r => setTimeout(r, 50));
+        
+        // فحص متوازي (10 عملات في الدفعة الواحدة) للسرعة القصوى
+        for (let i = 0; i < pairs.length; i += 10) {
+            const chunk = pairs.slice(i, i + 10);
+            const batchResults = await Promise.all(chunk.map(s => analyzePair(s)));
+            batchResults.forEach(res => { if (res) newSignals.push(res); });
+            analyzedPairsCount += chunk.length;
+            await new Promise(r => setTimeout(r, 100)); 
         }
         activeSignals = newSignals;
     } finally { isScanning = false; }
@@ -103,7 +106,8 @@ app.get('/api/signals', (req, res) => {
 });
 
 app.post('/api/settings', (req, res) => {
-    const { timeframe } = req.body;
+    const { timeframe, email } = req.body;
+    if (email) userEmail = email;
     if (timeframe && timeframe !== currentTimeframe) {
         currentTimeframe = timeframe;
         activeSignals = [];
@@ -118,4 +122,4 @@ app.get('/:path*', (req, res) => {
     res.sendFile(path.join(rootDir, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Server on ${PORT}`));
+app.listen(PORT, () => console.log(`Backend Active: ${PORT}`));
