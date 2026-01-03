@@ -20,7 +20,7 @@ const rootDir = dirname(__dirname);
 const EXCHANGE = new ccxt.kucoin();
 
 // State
-let activeSignals = [];
+let activeSignals = new Map(); // حفظ الإشارات باستخدام Map لضمان بقائها
 let allTickers = {};
 let analyzedPairsCount = 0;
 let totalPairsCount = 0;
@@ -32,6 +32,7 @@ let currentTimeframe = '4h';
 const RSI_PERIOD = 14;
 const RSI_OVER_SOLD = 20;
 const MAX_PAIRS_TO_SCAN = 1000;
+const SIGNAL_EXPIRY_MS = 2 * 60 * 60 * 1000; // بقاء التنبيه لمدة ساعتين
 
 async function fetchTopPairs() {
     try {
@@ -48,8 +49,8 @@ async function fetchTopPairs() {
 
 async function analyzePair(symbol) {
     try {
-        const candles = await EXCHANGE.fetchOHLCV(symbol, currentTimeframe, undefined, 50);
-        if (!candles || candles.length < 20) return null;
+        const candles = await EXCHANGE.fetchOHLCV(symbol, currentTimeframe, undefined, 60);
+        if (!candles || candles.length < 30) return null;
         const closes = candles.map(c => c[4]);
         const rsiValues = RSI.calculate({ values: closes, period: RSI_PERIOD });
         if (rsiValues.length < 3) return null;
@@ -58,12 +59,13 @@ async function analyzePair(symbol) {
         const prevConfirmedRSI = rsiValues[rsiValues.length - 3];
         const confirmedPrice = closes[closes.length - 2];
 
-        // تنبيه الاختراق القوي: السابقة تحت 20 والمغلقة فوق 20
+        // الاستراتيجية: اختراق RSI لمستوى 20 صعوداً عند الإغلاق
         if (prevConfirmedRSI < RSI_OVER_SOLD && confirmedRSI >= RSI_OVER_SOLD) {
             return {
                 symbol, price: confirmedPrice, rsi: confirmedRSI,
                 volume: allTickers[symbol]?.quoteVolume || 0,
                 signalIdx: candles.length - 2,
+                timestamp: Date.now(),
                 chartData: candles.map((c, i) => {
                     const rIdx = i - (closes.length - rsiValues.length);
                     return {
@@ -84,17 +86,27 @@ async function runScan() {
         const pairs = await fetchTopPairs();
         totalPairsCount = pairs.length;
         analyzedPairsCount = 0;
-        const newSignals = [];
         
-        // فحص متوازي (10 عملات في الدفعة الواحدة) للسرعة القصوى
         for (let i = 0; i < pairs.length; i += 10) {
             const chunk = pairs.slice(i, i + 10);
             const batchResults = await Promise.all(chunk.map(s => analyzePair(s)));
-            batchResults.forEach(res => { if (res) newSignals.push(res); });
+            
+            batchResults.forEach(sig => {
+                if (sig) activeSignals.set(sig.symbol, sig);
+            });
+            
             analyzedPairsCount += chunk.length;
             await new Promise(r => setTimeout(r, 100)); 
         }
-        activeSignals = newSignals;
+
+        // تنظيف الإشارات القديمة التي مر عليها أكثر من ساعتين
+        const now = Date.now();
+        for (const [symbol, sig] of activeSignals.entries()) {
+            if (now - sig.timestamp > SIGNAL_EXPIRY_MS) {
+                activeSignals.delete(symbol);
+            }
+        }
+        
     } finally { isScanning = false; }
 }
 
@@ -102,7 +114,8 @@ setInterval(runScan, 60 * 1000);
 runScan();
 
 app.get('/api/signals', (req, res) => {
-    res.json({ signals: activeSignals, status: { scanning: isScanning, progress: analyzedPairsCount, total: totalPairsCount } });
+    const signalsArray = Array.from(activeSignals.values()).sort((a,b) => b.timestamp - a.timestamp);
+    res.json({ signals: signalsArray, status: { scanning: isScanning, progress: analyzedPairsCount, total: totalPairsCount } });
 });
 
 app.post('/api/settings', (req, res) => {
@@ -110,7 +123,7 @@ app.post('/api/settings', (req, res) => {
     if (email) userEmail = email;
     if (timeframe && timeframe !== currentTimeframe) {
         currentTimeframe = timeframe;
-        activeSignals = [];
+        activeSignals.clear();
         if (!isScanning) runScan();
     }
     res.json({ success: true });
@@ -122,4 +135,4 @@ app.get('/:path*', (req, res) => {
     res.sendFile(path.join(rootDir, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Backend Active: ${PORT}`));
+app.listen(PORT, () => console.log(`Backend Stable on ${PORT}`));
