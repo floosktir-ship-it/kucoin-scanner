@@ -20,56 +20,56 @@ const rootDir = dirname(__dirname);
 
 const EXCHANGE = new ccxt.kucoin();
 
-let activeSignals = []; 
-let allTickers = {}; 
+// State
+let activeSignals = [];
+let allTickers = {};
+let analyzedPairsCount = 0;
+let totalPairsCount = 0;
+let userEmail = '';
 let isScanning = false;
-let subscribersList = new Set(); 
-let scanStatus = { progress: 0, total: 0, scanning: false };
 
-let settings = {
-    timeframe: '4h',
-    rsiLevel: 20,
-    rsiPeriod: 14,
-    senderEmail: process.env.SENDER_EMAIL || '', 
-    senderPass: process.env.SENDER_PASS || ''
-};
+// Config
+let currentTimeframe = '4h';
+const RSI_PERIOD = 14;
+const RSI_OVER_SOLD = 20;
+const MAX_PAIRS_TO_SCAN = 1000;
 
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: settings.senderEmail, pass: settings.senderPass }
-});
-
-async function sendEmailAlert(signal) {
-    const emails = Array.from(subscribersList);
-    if (emails.length === 0 || !settings.senderEmail || !settings.senderPass) return;
-    const mailOptions = {
-        from: `"KuCoin Sniper Pro" <${settings.senderEmail}>`,
-        to: settings.senderEmail,
-        bcc: emails.join(','),
-        subject: `🎯 Buy Signal: ${signal.symbol}`,
-        text: `New entry for ${signal.symbol} at $${signal.price}. RSI: ${signal.rsi.toFixed(2)}.`
-    };
-    try { await transporter.sendMail(mailOptions); } catch (e) { console.error("Email Fail"); }
+async function fetchTopPairs() {
+    try {
+        const markets = await EXCHANGE.loadMarkets();
+        const usdtPairs = Object.keys(markets).filter(s => s.endsWith('/USDT') && markets[s].active);
+        const tickers = await EXCHANGE.fetchTickers(usdtPairs);
+        allTickers = tickers;
+        return Object.values(tickers)
+            .sort((a, b) => (b.quoteVolume || 0) - (a.quoteVolume || 0))
+            .slice(0, MAX_PAIRS_TO_SCAN)
+            .map(t => t.symbol);
+    } catch (e) { return []; }
 }
 
 async function analyzePair(symbol) {
     try {
-        const candles = await EXCHANGE.fetchOHLCV(symbol, settings.timeframe, undefined, 50);
-        if (!candles || candles.length < 30) return null;
+        const candles = await EXCHANGE.fetchOHLCV(symbol, currentTimeframe, undefined, 50);
+        if (!candles || candles.length < 20) return null;
         const closes = candles.map(c => c[4]);
-        const rsiValues = RSI.calculate({ values: closes, period: settings.rsiPeriod });
+        const rsiValues = RSI.calculate({ values: closes, period: RSI_PERIOD });
         if (rsiValues.length < 3) return null;
-        const lastRSI = rsiValues[rsiValues.length - 2];
-        const prevRSI = rsiValues[rsiValues.length - 3];
 
-        if (prevRSI < settings.rsiLevel && lastRSI >= settings.rsiLevel) {
+        const confirmedRSI = rsiValues[rsiValues.length - 2]; 
+        const prevConfirmedRSI = rsiValues[rsiValues.length - 3];
+        const confirmedPrice = closes[closes.length - 2];
+
+        if (prevConfirmedRSI < RSI_OVER_SOLD && confirmedRSI >= RSI_OVER_SOLD) {
             return {
-                symbol, price: closes[closes.length - 1], rsi: lastRSI,
+                symbol, price: confirmedPrice, rsi: confirmedRSI,
                 volume: allTickers[symbol]?.quoteVolume || 0,
                 signalIdx: candles.length - 2,
                 chartData: candles.map((c, i) => {
                     const rIdx = i - (closes.length - rsiValues.length);
-                    return { time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5], rsi: rIdx >= 0 ? rsiValues[rIdx] : null };
+                    return {
+                        time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4],
+                        volume: c[5], rsi: rIdx >= 0 ? rsiValues[rIdx] : null
+                    };
                 })
             };
         }
@@ -80,48 +80,42 @@ async function analyzePair(symbol) {
 async function runScan() {
     if (isScanning) return;
     isScanning = true;
-    scanStatus.scanning = true;
     try {
-        const tickers = await EXCHANGE.fetchTickers();
-        const pairs = Object.keys(tickers).filter(s => s.endsWith('/USDT')).sort((a,b) => (tickers[b].quoteVolume || 0) - (tickers[a].quoteVolume || 0)).slice(0, 1000);
-        allTickers = tickers;
-        scanStatus.total = pairs.length;
-        scanStatus.progress = 0;
+        const pairs = await fetchTopPairs();
+        totalPairsCount = pairs.length;
+        analyzedPairsCount = 0;
         const newSignals = [];
-        for (let i = 0; i < pairs.length; i += 10) {
-            const chunk = pairs.slice(i, i + 10);
-            const results = await Promise.all(chunk.map(s => analyzePair(s)));
-            results.forEach(res => { if(res) { newSignals.push(res); sendEmailAlert(res); } });
-            scanStatus.progress += chunk.length;
-            await new Promise(r => setTimeout(r, 150)); 
+        for (const symbol of pairs) {
+            const sig = await analyzePair(symbol);
+            if (sig) newSignals.push(sig);
+            analyzedPairsCount++;
+            await new Promise(r => setTimeout(r, 50));
         }
         activeSignals = newSignals;
-    } catch (e) { console.error("Scan Error"); } finally { isScanning = false; scanStatus.scanning = false; }
+    } finally { isScanning = false; }
 }
 
-runScan();
 setInterval(runScan, 60 * 1000);
+runScan();
 
 app.get('/api/signals', (req, res) => {
-    res.json({ signals: activeSignals || [], status: scanStatus });
+    res.json({ signals: activeSignals, status: { scanning: isScanning, progress: analyzedPairsCount, total: totalPairsCount } });
 });
 
 app.post('/api/settings', (req, res) => {
-    const { email, timeframe, rsiLevel } = req.body;
-    if (email) subscribersList.add(email);
-    if (timeframe && timeframe !== settings.timeframe) {
-        settings.timeframe = timeframe;
+    const { timeframe } = req.body;
+    if (timeframe && timeframe !== currentTimeframe) {
+        currentTimeframe = timeframe;
         activeSignals = [];
-        if(!isScanning) runScan();
+        if (!isScanning) runScan();
     }
-    if (rsiLevel !== undefined) settings.rsiLevel = Number(rsiLevel);
     res.json({ success: true });
 });
 
 app.use(express.static(path.join(rootDir, 'dist')));
-app.get('*', (req, res) => {
+app.get('/:path*', (req, res) => {
     if (req.path.startsWith('/api')) return res.status(404).end();
     res.sendFile(path.join(rootDir, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Backend Stable on ${PORT}`));
+app.listen(PORT, () => console.log(`Server on ${PORT}`));
