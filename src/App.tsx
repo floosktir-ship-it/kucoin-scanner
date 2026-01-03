@@ -9,24 +9,19 @@ function App() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [status, setStatus] = useState({ scanning: false, progress: 0, total: 0 });
   const [loading, setLoading] = useState(true);
-  
   const [email, setEmail] = useState(() => localStorage.getItem('ks_email') || '');
   const [timeframe, setTimeframe] = useState(() => localStorage.getItem('ks_tf') || '4h');
   const [rsiLevel, setRsiLevel] = useState(() => Number(localStorage.getItem('ks_rsiL')) || 20);
-  const [rsiPeriod, setRsiPeriod] = useState(() => Number(localStorage.getItem('ks_rsiP')) || 14);
   const [minVolume, setMinVolume] = useState(() => Number(localStorage.getItem('ks_minV')) || 10000);
   const [selected, setSelected] = useState<Signal | null>(null);
 
-  // تحديث الإعدادات
   useEffect(() => {
     localStorage.setItem('ks_email', email);
     localStorage.setItem('ks_tf', timeframe);
     localStorage.setItem('ks_rsiL', rsiLevel.toString());
-    localStorage.setItem('ks_rsiP', rsiPeriod.toString());
     localStorage.setItem('ks_minV', minVolume.toString());
-    
-    axios.post('/api/settings', { email: "", timeframe, rsiLevel, rsiPeriod }).catch(() => {});
-  }, [timeframe, rsiLevel, rsiPeriod, minVolume]);
+    axios.post('/api/settings', { timeframe, rsiLevel }).catch(() => {});
+  }, [timeframe, rsiLevel, minVolume]);
 
   const fetchSignals = async () => {
     try {
@@ -35,11 +30,7 @@ function App() {
         setSignals(res.data.signals || []);
         setStatus(res.data.status || { scanning: false, progress: 0, total: 0 });
       }
-    } catch (e) {
-      console.error("Fetch error");
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   useEffect(() => {
@@ -48,12 +39,10 @@ function App() {
     return () => clearInterval(inv);
   }, []);
 
-  const handleSubscribe = async () => {
-      if (!email || !email.includes('@')) return alert("Enter valid email");
-      try {
-          await axios.post('/api/settings', { email });
-          alert("✅ You've been added to the alert list!");
-      } catch (e) { alert("Error subscribing"); }
+  const handleJoin = async () => {
+    if(!email.includes('@')) return alert("Enter valid email");
+    await axios.post('/api/settings', { email });
+    alert("✅ Subscribed to alerts!");
   };
 
   const filtered = useMemo(() => signals.filter(s => s.volume >= minVolume), [signals, minVolume]);
@@ -64,9 +53,8 @@ function App() {
       <header className="header">
         <div className="title-area">
           <h1>🎯 KuCoin Sniper <span className="pro-badge">PRO</span></h1>
-          <p className="scan-status">{status.scanning ? `Scanning Market: ${status.progress}/${status.total}` : 'Market Ready 🟢'}</p>
+          <p>{status.scanning ? `Scanning: ${status.progress}/${status.total}` : 'Market Ready 🟢'}</p>
         </div>
-        
         <div className="pro-panel">
           <div className="panel-row">
             <div className="input-box"><label>Timeframe</label>
@@ -85,8 +73,8 @@ function App() {
             <div className="input-box wide">
               <label>Join Mobile Alerts List</label>
               <div style={{display:'flex', gap:'5px'}}>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Enter your email" />
-                <button onClick={handleSubscribe} className="save-btn" style={{padding:'0 15px'}}>JOIN</button>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" />
+                <button onClick={handleJoin} className="save-btn">JOIN</button>
               </div>
             </div>
           </div>
@@ -94,19 +82,14 @@ function App() {
       </header>
 
       {loading ? (
-        <div className="loading-container"><div className="spinner"></div><p>Synchronizing Markets...</p></div>
-      ) : filtered.length === 0 ? (
-        <div className="empty-state"><h2>No Signals Found</h2><p>Scanning top 1000 pairs. Wait for next candle close.</p></div>
+        <div className="loading-container"><div className="spinner"></div><p>Syncing Markets...</p></div>
       ) : (
         <div className="grid">
           {filtered.map(sig => (
             <div key={sig.symbol} className="card" onClick={() => setSelected(sig)}>
               <div className="card-header">
                 <span className="sym">{sig.symbol.split('/')[0]}</span>
-                <div className="info">
-                  <span className="price">${sig.price}</span>
-                  <span className="rsi-val">RSI: {sig.rsi.toFixed(1)}</span>
-                </div>
+                <div className="info"><span className="price">${sig.price}</span><span className="rsi-val">RSI: {sig.rsi.toFixed(1)}</span></div>
               </div>
               <div className="chart-preview">
                 <SignalChart data={sig.chartData} signalIdx={sig.signalIdx} rsiLevel={rsiLevel} colors={{backgroundColor:'#000'}} />
@@ -121,11 +104,11 @@ function App() {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <button className="close" onClick={() => setSelected(null)}>&times;</button>
             <div className="modal-head">
-               <h2>{selected.symbol} Detail</h2>
+               <h2>{selected.symbol} Details</h2>
                <div className="modal-stats">
                   <div>Price: <span>${selected.price}</span></div>
                   <div>RSI: <span>{selected.rsi.toFixed(2)}</span></div>
-                  <div>24h Vol: <span>${formatVol(selected.volume)}</span></div>
+                  <div>Vol: <span>${formatVol(selected.volume)}</span></div>
                </div>
             </div>
             <div className="modal-chart-box">
