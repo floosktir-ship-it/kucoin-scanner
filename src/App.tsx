@@ -26,9 +26,9 @@ function App() {
   const fetchSignals = async () => {
     try {
       const res = await axios.get('/api/signals');
-      if (res.data) {
-        setSignals(res.data.signals || []);
-        setStatus(res.data.status || { scanning: false, progress: 0, total: 0 });
+      if (res.data && res.data.signals) {
+        setSignals(res.data.signals);
+        setStatus(res.data.status || status);
       }
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
@@ -41,11 +41,17 @@ function App() {
 
   const handleJoin = async () => {
     if(!email.includes('@')) return alert("Enter valid email");
-    await axios.post('/api/settings', { email });
-    alert("✅ Subscribed to alerts!");
+    try {
+        await axios.post('/api/settings', { email });
+        alert("✅ Success! You're on the list.");
+    } catch(e) { alert("Error subscribing"); }
   };
 
-  const filtered = useMemo(() => signals.filter(s => s.volume >= minVolume), [signals, minVolume]);
+  const filtered = useMemo(() => {
+    if(!signals) return [];
+    return signals.filter(s => s.volume >= minVolume);
+  }, [signals, minVolume]);
+
   const formatVol = (v: number) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v.toFixed(0);
 
   return (
@@ -53,7 +59,7 @@ function App() {
       <header className="header">
         <div className="title-area">
           <h1>🎯 KuCoin Sniper <span className="pro-badge">PRO</span></h1>
-          <p>{status.scanning ? `Scanning: ${status.progress}/${status.total}` : 'Market Ready 🟢'}</p>
+          <div className="live-status">{status.scanning ? `Scanning Market: ${status.progress}/${status.total}` : '🟢 Ready to Snipe'}</div>
         </div>
         <div className="pro-panel">
           <div className="panel-row">
@@ -62,7 +68,7 @@ function App() {
                 <option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1d</option>
               </select>
             </div>
-            <div className="input-box"><label>RSI Level</label>
+            <div className="input-box"><label>RSI Breakout</label>
               <input type="number" value={rsiLevel} onChange={e => setRsiLevel(Number(e.target.value))} />
             </div>
             <div className="input-box"><label>Min Vol: ${formatVol(minVolume)}</label>
@@ -71,18 +77,20 @@ function App() {
           </div>
           <div className="panel-row">
             <div className="input-box wide">
-              <label>Join Mobile Alerts List</label>
+              <label>Join Global Alerts List</label>
               <div style={{display:'flex', gap:'5px'}}>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" />
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Enter email" />
                 <button onClick={handleJoin} className="save-btn">JOIN</button>
               </div>
             </div>
           </div>
         </div>
       </header>
-
+      
       {loading ? (
-        <div className="loading-container"><div className="spinner"></div><p>Syncing Markets...</p></div>
+        <div className="loading-container"><div className="spinner"></div><p>Synchronizing Liquidity...</p></div>
+      ) : filtered.length === 0 ? (
+        <div className="empty-state"><h2>No Active Signals</h2><p>Wait for candle close or check 15m TF.</p></div>
       ) : (
         <div className="grid">
           {filtered.map(sig => (
@@ -104,11 +112,11 @@ function App() {
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <button className="close" onClick={() => setSelected(null)}>&times;</button>
             <div className="modal-head">
-               <h2>{selected.symbol} Details</h2>
+               <h2>{selected.symbol} Analysis</h2>
                <div className="modal-stats">
                   <div>Price: <span>${selected.price}</span></div>
-                  <div>RSI: <span>{selected.rsi.toFixed(2)}</span></div>
-                  <div>Vol: <span>${formatVol(selected.volume)}</span></div>
+                  <div>RSI: <span style={{color:'orange'}}>{selected.rsi.toFixed(2)}</span></div>
+                  <div>24h Vol: <span>${formatVol(selected.volume)}</span></div>
                </div>
             </div>
             <div className="modal-chart-box">
