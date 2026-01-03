@@ -26,17 +26,15 @@ let allTickers = {};
 let isScanning = false;
 let status = { progress: 0, total: 0 };
 
-// إعدادات افتراضية قابلة للتعديل من الواجهة
 let settings = {
     email: '',
     timeframe: '4h',
     rsiLevel: 20,
     rsiPeriod: 14,
-    senderEmail: process.env.SENDER_EMAIL || '', // إيميلك الذي سيرسل
-    senderPass: process.env.SENDER_PASS || ''    // كلمة مرور التطبيقات
+    senderEmail: process.env.SENDER_EMAIL || '', 
+    senderPass: process.env.SENDER_PASS || ''
 };
 
-// إعداد نظام الإرسال
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: settings.senderEmail, pass: settings.senderPass }
@@ -47,10 +45,10 @@ async function sendEmailAlert(signal) {
     const mailOptions = {
         from: settings.senderEmail,
         to: settings.email,
-        subject: `🎯 KuCoin Signal: ${signal.symbol}`,
-        text: `New Buy Signal found for ${signal.symbol} at price $${signal.price}. RSI(${settings.rsiPeriod}) just crossed above ${settings.rsiLevel} on ${settings.timeframe} timeframe.`
+        subject: `🎯 Signal: ${signal.symbol}`,
+        text: `New Buy Signal found for ${signal.symbol} at $${signal.price}. RSI just crossed above ${settings.rsiLevel}.`
     };
-    try { await transporter.sendMail(mailOptions); console.log("Email Sent!"); } catch (e) { console.error("Email Fail:", e.message); }
+    try { await transporter.sendMail(mailOptions); } catch (e) { console.error("Email Fail"); }
 }
 
 async function analyzePair(symbol) {
@@ -74,7 +72,7 @@ async function analyzePair(symbol) {
                     return { time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4], rsi: rIdx >= 0 ? rsiValues[rIdx] : null };
                 })
             };
-            sendEmailAlert(signal); // إرسال تنبيه فور الاكتشاف
+            sendEmailAlert(signal);
             return signal;
         }
     } catch (e) {}
@@ -85,27 +83,28 @@ async function runScan() {
     if (isScanning) return;
     isScanning = true;
     try {
-        const markets = await EXCHANGE.loadMarkets();
-        const usdtPairs = Object.keys(markets).filter(s => s.endsWith('/USDT') && markets[s].active);
-        const tickers = await EXCHANGE.fetchTickers(usdtPairs);
-        allTickers = tickers;
-        const pairs = Object.values(tickers).sort((a,b) => b.quoteVolume - a.quoteVolume).slice(0,1000).map(t => t.symbol);
+        const usdtTickers = await EXCHANGE.fetchTickers();
+        const pairs = Object.values(usdtTickers)
+            .filter(t => t.symbol.endsWith('/USDT'))
+            .sort((a,b) => (b.quoteVolume || 0) - (a.quoteVolume || 0))
+            .slice(0, 1000)
+            .map(t => t.symbol);
         
+        allTickers = usdtTickers;
         status.total = pairs.length;
         status.progress = 0;
         const newSignals = [];
 
-        // تسريع الفحص: فحص مجموعات (10 عملات في وقت واحد)
         const chunkSize = 10;
         for (let i = 0; i < pairs.length; i += chunkSize) {
             const chunk = pairs.slice(i, i + chunkSize);
             const results = await Promise.all(chunk.map(symbol => analyzePair(symbol)));
             results.forEach(res => { if(res) newSignals.push(res); });
             status.progress += chunk.length;
-            await new Promise(r => setTimeout(r, 200)); 
+            await new Promise(r => setTimeout(r, 100)); 
         }
         activeSignals = newSignals;
-    } catch (e) { console.error("Scan Error:", e); } finally { isScanning = false; }
+    } catch (e) { console.error(e); } finally { isScanning = false; }
 }
 
 runScan();
@@ -120,7 +119,6 @@ app.post('/api/settings', (req, res) => {
     if (timeframe && timeframe !== settings.timeframe) { settings.timeframe = timeframe; needsRescan = true; }
     if (rsiLevel !== undefined) { settings.rsiLevel = Number(rsiLevel); needsRescan = true; }
     if (rsiPeriod !== undefined) { settings.rsiPeriod = Number(rsiPeriod); needsRescan = true; }
-    
     res.json({ success: true, settings });
     if (needsRescan && !isScanning) { activeSignals = []; runScan(); }
 });
@@ -128,4 +126,4 @@ app.post('/api/settings', (req, res) => {
 app.use(express.static(path.join(rootDir, 'dist')));
 app.get('/:path*', (req, res) => res.sendFile(path.join(rootDir, 'dist', 'index.html')));
 
-app.listen(PORT, () => console.log(`Pro Scanner Running on ${PORT}`));
+app.listen(PORT, () => console.log(`Backend Active on ${PORT}`));
