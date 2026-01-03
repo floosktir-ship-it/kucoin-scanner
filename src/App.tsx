@@ -1,5 +1,4 @@
-
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import './App.css'
 import axios from 'axios';
 import { SignalChart } from './components/SignalChart';
@@ -9,6 +8,7 @@ interface Signal {
   price: number;
   rsi: number;
   sma: number;
+  volume: number;
   chartData: any[];
 }
 
@@ -17,6 +17,8 @@ function App() {
   const [status, setStatus] = useState<any>({});
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(true);
+  const [minVolume, setMinVolume] = useState(100000); // Default 100k
+  const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null);
 
   const fetchSignals = async () => {
     try {
@@ -37,56 +39,122 @@ function App() {
 
   useEffect(() => {
     fetchSignals();
-    const interval = setInterval(fetchSignals, 60000); // Poll every minute
+    const interval = setInterval(fetchSignals, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  const filteredSignals = useMemo(() => {
+    return signals.filter(sig => sig.volume >= minVolume);
+  }, [signals, minVolume]);
+
+  const formatVolume = (vol: number) => {
+    if (vol >= 1000000) return `${(vol / 1000000).toFixed(2)}M`;
+    if (vol >= 1000) return `${(vol / 1000).toFixed(1)}K`;
+    return vol.toFixed(0);
+  };
 
   return (
     <div className="container">
       <header className="header">
         <h1>🎯 KuCoin Sniper</h1>
-        <div className="status-bar">
-          <span>Status: {status.scanning ? 'Scanning...' : 'Idle'}</span>
-          <span>Scanned: {status.progress} / {status.total}</span>
-        </div>
-        <div className="email-settings">
-          <input
-            type="email"
-            placeholder="Enter Gmail for Alerts"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <button onClick={saveEmail}>Save</button>
+        <div className="controls-wrapper">
+          <div className="status-pills">
+            <div className={`pill ${status.scanning ? 'active' : ''}`}>
+              {status.scanning ? 'Scanning...' : 'Idle'}
+            </div>
+            <div className="pill">
+              {status.progress} / {status.total}
+            </div>
+          </div>
+
+          <div className="filter-group">
+            <label>Min Vol: ${formatVolume(minVolume)}</label>
+            <input
+              type="range"
+              min="0"
+              max="5000000"
+              step="50000"
+              value={minVolume}
+              onChange={(e) => setMinVolume(parseInt(e.target.value))}
+            />
+          </div>
+
+          <div className="email-settings">
+            <input
+              type="email"
+              placeholder="Email Alerts"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <button className="save-btn" onClick={saveEmail}>Save</button>
+          </div>
         </div>
       </header>
 
       {loading ? (
-        <div className="loading">Initializing Strategy Scanner...</div>
-      ) : signals.length === 0 ? (
+        <div className="loading-container">
+          <div className="spinner"></div>
+          <p>Analyzing Markets...</p>
+        </div>
+      ) : filteredSignals.length === 0 ? (
         <div className="empty-state">
           <h2>No Signals Found 📉</h2>
-          <p>Scanning Top USDT Pairs on 4H Timeframe...</p>
-          <p>Waiting for RSI(14) to cross 20 Up &amp; Price &gt; SMA(9)</p>
+          <p>Try lowering the Volume Filter or wait for the next scan.</p>
         </div>
       ) : (
         <div className="grid">
-          {signals.map((sig) => (
-            <div key={sig.symbol} className="card">
+          {filteredSignals.map((sig) => (
+            <div key={sig.symbol} className="card" onClick={() => setSelectedSignal(sig)}>
               <div className="card-header">
-                <h3>{sig.symbol}</h3>
+                <div className="symbol-name">{sig.symbol.split('/')[0]}</div>
                 <div className="badges">
-                  <span className="badge rsi">RSI: {sig.rsi.toFixed(2)}</span>
-                  <span className="badge price">${sig.price}</span>
+                  <span className="badge price-val">${sig.price}</span>
+                  <span className="badge rsi-val">RSI: {sig.rsi.toFixed(2)}</span>
+                  <span className="badge vol-val">Vol: {formatVolume(sig.volume)}</span>
                 </div>
               </div>
-              <div className="chart-wrapper">
+              <div className="chart-container-wrapper">
                 <SignalChart
                   data={sig.chartData}
-                  colors={{ backgroundColor: '#1e1e1e', textColor: 'white' }}
+                  colors={{ backgroundColor: '#000', textColor: '#d1d4dc' }}
                 />
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {selectedSignal && (
+        <div className="modal-overlay" onClick={() => setSelectedSignal(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={() => setSelectedSignal(null)}>&times;</button>
+            <div className="modal-header">
+              <h2 style={{ fontSize: '2rem', margin: '0 0 1rem 0' }}>{selectedSignal.symbol} Detail View</h2>
+              <div style={{ display: 'flex', gap: '2rem', marginBottom: '2rem' }}>
+                <div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Price</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>${selectedSignal.price}</div>
+                </div>
+                <div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>RSI (14)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--warning)' }}>{selectedSignal.rsi.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>24h Volume</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>${formatVolume(selectedSignal.volume)}</div>
+                </div>
+              </div>
+            </div>
+            <div style={{ height: '600px', background: '#000', borderRadius: '16px', overflow: 'hidden' }}>
+              <SignalChart
+                data={selectedSignal.chartData}
+                colors={{ backgroundColor: '#000', textColor: '#d1d4dc' }}
+              />
+            </div>
+            <div style={{ marginTop: '2rem', color: 'var(--text-secondary)' }}>
+              <p>Strategy: RSI(14) Cross Above 20 + Price > SMA(9). Timeframe: 4H.</p>
+            </div>
+          </div>
         </div>
       )}
     </div>
