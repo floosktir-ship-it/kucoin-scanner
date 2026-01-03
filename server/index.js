@@ -8,7 +8,6 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import path from 'path';
 
-
 dotenv.config();
 
 const app = express();
@@ -33,9 +32,8 @@ let isScanning = false;
 // Configuration
 const TIMEFRAME = '4h'; // Strategy Timeframe
 const RSI_PERIOD = 14;
-const SMA_PERIOD = 9;
 const RSI_OVER_SOLD = 20; // Strategy: Cross above 20
-const MAX_PAIRS_TO_SCAN = 3000; // Scan top 3000 volume coins
+const MAX_PAIRS_TO_SCAN = 1000; // Scan top 1000 volume coins
 
 // --- Email Service ---
 const transporter = nodemailer.createTransport({
@@ -49,7 +47,7 @@ const transporter = nodemailer.createTransport({
 
 // We'll update transporter on the fly if we want real sending, 
 // for now let's just simulate or log if credentials aren't truly set.
-async function sendAlert(coin, price, rsi, sma) {
+async function sendAlert(coin, price, rsi) { // Removed sma parameter
     if (!userEmail) {
         console.log(`[ALERT] Signal found for ${coin} at ${price} (RSI: ${rsi}), but no email set.`);
         return;
@@ -91,7 +89,7 @@ async function fetchTopPairs() {
 async function analyzePair(symbol) {
     try {
         // Fetch OHLCV
-        // We need enough data for RSI 14 + SMA 9. 
+        // We need enough data for RSI 14. 
         // 50 candles should be safe.
         const candles = await EXCHANGE.fetchOHLCV(symbol, TIMEFRAME, undefined, 50);
 
@@ -103,39 +101,29 @@ async function analyzePair(symbol) {
         const rsiInput = { values: closes, period: RSI_PERIOD };
         const rsiValues = RSI.calculate(rsiInput);
 
-        // Calculate SMA
-        const smaInput = { values: closes, period: SMA_PERIOD };
-        const smaValues = SMA.calculate(smaInput);
-
-        if (rsiValues.length < 2 || smaValues.length < 1) return null;
+        if (rsiValues.length < 2) return null; // Removed SMA length check
 
         const currentRSI = rsiValues[rsiValues.length - 1];
         const prevRSI = rsiValues[rsiValues.length - 2];
-        const currentSMA = smaValues[smaValues.length - 1];
         const currentPrice = closes[closes.length - 1];
 
         // --- STRATEGY LOGIC ---
         // 1. RSI crosses ABOVE 20 (Previous < 20 AND Current >= 20)
-        // 2. Price is ABOVE or EQUAL to SMA 9
 
         const rsiCrossedUp = prevRSI < RSI_OVER_SOLD && currentRSI >= RSI_OVER_SOLD;
-        const priceAboveSMA = currentPrice >= currentSMA;
 
-        if (rsiCrossedUp && priceAboveSMA) {
+        if (rsiCrossedUp) { // Removed priceAboveSMA check
             return {
                 symbol,
                 price: currentPrice,
                 rsi: currentRSI,
-                sma: currentSMA,
                 volume: allTickers[symbol]?.quoteVolume || 0,
                 rsiValues: rsiValues,
-                smaValues: smaValues,
                 chartData: candles.map((c, i) => {
-                    // Align RSI and SMA with candles. 
-                    // RSI(14) starts at index 14, SMA(9) starts at index 9.
-                    // We need to find the correct index in the rsi/sma arrays.
+                    // Align RSI with candles. 
+                    // RSI(14) starts at index 14.
+                    // We need to find the correct index in the rsi array.
                     const rsiIdx = i - (closes.length - rsiValues.length);
-                    const smaIdx = i - (closes.length - smaValues.length);
 
                     return {
                         time: c[0] / 1000,
