@@ -11,15 +11,17 @@ function App() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [status, setStatus] = useState<any>({});
   const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState(() => localStorage.getItem('ks_email') || '');
   const [minVolume, setMinVolume] = useState(() => Number(localStorage.getItem('ks_minVol')) || 10000);
   const [timeframe, setTimeframe] = useState(() => localStorage.getItem('ks_tf') || '4h');
   const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null);
 
   useEffect(() => {
     localStorage.setItem('ks_minVol', minVolume.toString());
+    localStorage.setItem('ks_email', email);
     localStorage.setItem('ks_tf', timeframe);
-    axios.post('/api/settings', { timeframe });
-  }, [minVolume, timeframe]);
+    axios.post('/api/settings', { timeframe, email });
+  }, [minVolume, timeframe, email]);
 
   const fetchSignals = async () => {
     try {
@@ -53,14 +55,17 @@ function App() {
             </select>
           </div>
           <div className="filter-group">
-            <label>Vol: ${formatVol(minVolume)}</label>
+            <input type="email" placeholder="Set Alert Email" value={email} onChange={e => setEmail(e.target.value)} className="email-input" />
+          </div>
+          <div className="filter-group volumes">
+            <label>Min Vol: ${formatVol(minVolume)}</label>
             <input type="range" min="0" max="1000000" step="10000" value={minVolume} onChange={e => setMinVolume(Number(e.target.value))} />
           </div>
         </div>
       </header>
 
       {loading ? <div className="loading-container"><div className="spinner"></div></div> : 
-       filteredSignals.length === 0 ? <div className="empty-state"><h2>No Signals Found</h2></div> : (
+       filteredSignals.length === 0 ? <div className="empty-state"><h2>No Signals Found 📉</h2></div> : (
         <div className="grid">
           {filteredSignals.map(sig => (
             <div key={sig.symbol} className="card" onClick={() => setSelectedSignal(sig)}>
@@ -83,8 +88,10 @@ function App() {
         <div className="modal-overlay" onClick={() => setSelectedSignal(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setSelectedSignal(null)}>&times;</button>
-            <h2>{selectedSignal.symbol} Detail View</h2>
-            <div style={{ height: '500px', background: '#000', borderRadius: '12px', overflow: 'hidden', marginTop: '1rem' }}>
+            <div className="modal-header">
+              <h2>{selectedSignal.symbol} Full Analysis</h2>
+            </div>
+            <div className="modal-chart-box">
               <SignalChart data={selectedSignal.chartData} signalIdx={selectedSignal.signalIdx} colors={{ backgroundColor: '#000' }} />
             </div>
           </div>
