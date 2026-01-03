@@ -17,26 +17,56 @@ export const SignalChart = ({ data, colors }: SignalChartProps) => {
 
         const chart = createChart(chartContainerRef.current, {
             layout: {
-                background: { type: ColorType.Solid, color: colors.backgroundColor || '#1e1e1e' },
-                textColor: colors.textColor || '#ffffff',
+                background: { type: ColorType.Solid, color: colors.backgroundColor || '#111111' },
+                textColor: colors.textColor || '#d1d4dc',
             },
             width: chartContainerRef.current.clientWidth,
-            height: 300,
+            height: 400, // Increased height for RSI pane
             grid: {
-                vertLines: { visible: false },
-                horzLines: { visible: false },
+                vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
+            },
+            timeScale: {
+                borderColor: 'rgba(197, 203, 206, 0.8)',
             },
         });
 
-        const candlestickSeries = (chart as any).addCandlestickSeries({
+        // 1. Candlestick Series
+        const candlestickSeries = chart.addCandlestickSeries({
             upColor: '#26a69a',
             downColor: '#ef5350',
             borderVisible: false,
             wickUpColor: '#26a69a',
             wickDownColor: '#ef5350',
         });
-
         candlestickSeries.setData(data);
+
+        // 2. SMA Line (Overlay)
+        const smaSeries = chart.addLineSeries({
+            color: '#2196F3',
+            lineWidth: 2,
+            title: 'SMA 9',
+        });
+        smaSeries.setData(data.map(d => ({ time: d.time, value: d.sma })));
+
+        // 3. RSI Series (Separate Pane)
+        const rsiSeries = chart.addLineSeries({
+            color: '#FF9800',
+            lineWidth: 2,
+            priceScaleId: 'rsi', // Create new scale for RSI
+            title: 'RSI 14',
+        });
+
+        // Configure RSI Scale
+        chart.priceScale('rsi').applyOptions({
+            autoScale: false,
+            scaleMargins: {
+                top: 0.75, // Bottom 25% of the chart
+                bottom: 0.05,
+            },
+        });
+
+        rsiSeries.setData(data.map(d => ({ time: d.time, value: d.rsi })));
 
         chart.timeScale().fitContent();
 
