@@ -152,7 +152,7 @@ function App() {
               />
             </div>
             <div style={{ marginTop: '2rem', color: 'var(--text-secondary)' }}>
-              <p>Strategy: RSI(14) Cross Above 20 + Price > SMA(9). Timeframe: 4H.</p>
+              <p>Strategy: RSI(14) Cross Above 20 + Price &gt; SMA(9). Timeframe: 4H.</p>
             </div>
           </div>
         </div>
