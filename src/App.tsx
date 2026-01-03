@@ -3,124 +3,89 @@ import './App.css'
 import axios from 'axios';
 import { SignalChart } from './components/SignalChart';
 
-interface Signal { symbol: string; price: number; rsi: number; volume: number; chartData: any[]; signalIdx: number; }
+interface Signal {
+  symbol: string; price: number; rsi: number; volume: number; signalIdx: number; chartData: any[];
+}
 
 function App() {
   const [signals, setSignals] = useState<Signal[]>([]);
-  const [status, setStatus] = useState({ scanning: false, progress: 0, total: 0 });
+  const [status, setStatus] = useState<any>({});
   const [loading, setLoading] = useState(true);
-  const [email, setEmail] = useState(() => localStorage.getItem('ks_email') || '');
+  const [minVolume, setMinVolume] = useState(() => Number(localStorage.getItem('ks_minVol')) || 10000);
   const [timeframe, setTimeframe] = useState(() => localStorage.getItem('ks_tf') || '4h');
-  const [rsiLevel, setRsiLevel] = useState(() => Number(localStorage.getItem('ks_rsiL')) || 20);
-  const [minVolume, setMinVolume] = useState(() => Number(localStorage.getItem('ks_minV')) || 10000);
-  const [selected, setSelected] = useState<Signal | null>(null);
+  const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('ks_email', email);
+    localStorage.setItem('ks_minVol', minVolume.toString());
     localStorage.setItem('ks_tf', timeframe);
-    localStorage.setItem('ks_rsiL', rsiLevel.toString());
-    localStorage.setItem('ks_minV', minVolume.toString());
-    axios.post('/api/settings', { timeframe, rsiLevel }).catch(() => {});
-  }, [timeframe, rsiLevel, minVolume]);
+    axios.post('/api/settings', { timeframe });
+  }, [minVolume, timeframe]);
 
   const fetchSignals = async () => {
     try {
       const res = await axios.get('/api/signals');
-      if (res.data && res.data.signals) {
-        setSignals(res.data.signals);
-        setStatus(res.data.status || status);
-      }
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+      setSignals(res.data.signals);
+      setStatus(res.data.status);
+    } finally { setLoading(false); }
   };
 
   useEffect(() => {
     fetchSignals();
-    const inv = setInterval(fetchSignals, 5000);
-    return () => clearInterval(inv);
+    const interval = setInterval(fetchSignals, 30000);
+    return () => clearInterval(interval);
   }, []);
 
-  const handleJoin = async () => {
-    if(!email.includes('@')) return alert("Enter valid email");
-    try {
-        await axios.post('/api/settings', { email });
-        alert("✅ Success! You're on the list.");
-    } catch(e) { alert("Error subscribing"); }
-  };
-
-  const filtered = useMemo(() => {
-    if(!signals) return [];
-    return signals.filter(s => s.volume >= minVolume);
-  }, [signals, minVolume]);
-
-  const formatVol = (v: number) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v.toFixed(0);
+  const filteredSignals = useMemo(() => signals.filter(s => s.volume >= minVolume), [signals, minVolume]);
+  const formatVol = (v: number) => v >= 1e6 ? (v/1e6).toFixed(2)+'M' : v >= 1e3 ? (v/1e3).toFixed(1)+'K' : v.toFixed(0);
 
   return (
     <div className="container">
       <header className="header">
-        <div className="title-area">
-          <h1>🎯 KuCoin Sniper <span className="pro-badge">PRO</span></h1>
-          <div className="live-status">{status.scanning ? `Scanning Market: ${status.progress}/${status.total}` : '🟢 Ready to Snipe'}</div>
-        </div>
-        <div className="pro-panel">
-          <div className="panel-row">
-            <div className="input-box"><label>Timeframe</label>
-              <select value={timeframe} onChange={e => setTimeframe(e.target.value)}>
-                <option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1d</option>
-              </select>
-            </div>
-            <div className="input-box"><label>RSI Breakout</label>
-              <input type="number" value={rsiLevel} onChange={e => setRsiLevel(Number(e.target.value))} />
-            </div>
-            <div className="input-box"><label>Min Vol: ${formatVol(minVolume)}</label>
-              <input type="range" min="0" max="1000000" step="10000" value={minVolume} onChange={e => setMinVolume(Number(e.target.value))} />
-            </div>
+        <h1>🎯 KuCoin Sniper Pro</h1>
+        <div className="controls-wrapper">
+          <div className="status-pills">
+            <div className={`pill ${status.scanning ? 'active' : ''}`}>{status.scanning ? 'Scanning...' : 'Idle'}</div>
+            <div className="pill">{status.progress} / {status.total}</div>
           </div>
-          <div className="panel-row">
-            <div className="input-box wide">
-              <label>Join Global Alerts List</label>
-              <div style={{display:'flex', gap:'5px'}}>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Enter email" />
-                <button onClick={handleJoin} className="save-btn">JOIN</button>
-              </div>
-            </div>
+          <div className="filter-group">
+            <select value={timeframe} onChange={e => setTimeframe(e.target.value)} className="tf-select">
+              <option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1d</option>
+            </select>
+          </div>
+          <div className="filter-group">
+            <label>Vol: ${formatVol(minVolume)}</label>
+            <input type="range" min="0" max="1000000" step="10000" value={minVolume} onChange={e => setMinVolume(Number(e.target.value))} />
           </div>
         </div>
       </header>
-      
-      {loading ? (
-        <div className="loading-container"><div className="spinner"></div><p>Synchronizing Liquidity...</p></div>
-      ) : filtered.length === 0 ? (
-        <div className="empty-state"><h2>No Active Signals</h2><p>Wait for candle close or check 15m TF.</p></div>
-      ) : (
+
+      {loading ? <div className="loading-container"><div className="spinner"></div></div> : 
+       filteredSignals.length === 0 ? <div className="empty-state"><h2>No Signals Found</h2></div> : (
         <div className="grid">
-          {filtered.map(sig => (
-            <div key={sig.symbol} className="card" onClick={() => setSelected(sig)}>
+          {filteredSignals.map(sig => (
+            <div key={sig.symbol} className="card" onClick={() => setSelectedSignal(sig)}>
               <div className="card-header">
-                <span className="sym">{sig.symbol.split('/')[0]}</span>
-                <div className="info"><span className="price">${sig.price}</span><span className="rsi-val">RSI: {sig.rsi.toFixed(1)}</span></div>
+                <span className="symbol-name">{sig.symbol.split('/')[0]}</span>
+                <div className="badges">
+                  <span className="badge price-val">${sig.price}</span>
+                  <span className="badge rsi-val">RSI: {sig.rsi.toFixed(2)}</span>
+                </div>
               </div>
-              <div className="chart-preview">
-                <SignalChart data={sig.chartData} signalIdx={sig.signalIdx} rsiLevel={rsiLevel} colors={{backgroundColor:'#000'}} />
+              <div className="chart-container-wrapper">
+                <SignalChart data={sig.chartData} signalIdx={sig.signalIdx} rsiLevel={20} colors={{ backgroundColor: '#000' }} />
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {selected && (
-        <div className="modal-overlay" onClick={() => setSelected(null)}>
+      {selectedSignal && (
+        <div className="modal-overlay" onClick={() => setSelectedSignal(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <button className="close" onClick={() => setSelected(null)}>&times;</button>
-            <div className="modal-head">
-               <h2>{selected.symbol} Analysis</h2>
-               <div className="modal-stats">
-                  <div>Price: <span>${selected.price}</span></div>
-                  <div>RSI: <span style={{color:'orange'}}>{selected.rsi.toFixed(2)}</span></div>
-                  <div>24h Vol: <span>${formatVol(selected.volume)}</span></div>
-               </div>
-            </div>
-            <div className="modal-chart-box">
-              <SignalChart data={selected.chartData} signalIdx={selected.signalIdx} rsiLevel={rsiLevel} colors={{backgroundColor:'#000'}} />
+            <button className="close-btn" onClick={() => setSelectedSignal(null)}>&times;</button>
+            <h2>{selectedSignal.symbol} Detail View</h2>
+            <div style={{ height: '500px', background: '#000', borderRadius: '12px', overflow: 'hidden', marginTop: '1rem' }}>
+              <SignalChart data={selectedSignal.chartData} signalIdx={selectedSignal.signalIdx} colors={{ backgroundColor: '#000' }} />
             </div>
           </div>
         </div>
@@ -128,4 +93,4 @@ function App() {
     </div>
   )
 }
-export default App
+export default App;
